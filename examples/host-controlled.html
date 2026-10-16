@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Slate host-controlled example</title>
+  <link rel="stylesheet" href="../slate.css">
+  <style>
+    body { margin: 24px; font-family: system-ui, sans-serif; }
+    #slateHost { height: 620px; border: 1px solid #bbb; }
+    #savedMarkdown { width: 100%; min-height: 150px; margin-top: 16px; font-family: monospace; }
+  </style>
+</head>
+<body>
+  <h1>Host-controlled Slate</h1>
+  <p>The host owns the Markdown. Slate does not persist the document or settings.</p>
+  <div id="slateHost"></div>
+  <label for="savedMarkdown">Markdown received from <code>slate:change</code></label>
+  <textarea id="savedMarkdown" readonly></textarea>
+
+  <script src="../slate.js"></script>
+  <script>
+    (async () => {
+      const host = document.getElementById('slateHost');
+      const output = document.getElementById('savedMarkdown');
+      const initialMarkdown = '# Host-controlled document\n\n- [ ] Edit this task\n\nThe surrounding application owns this Markdown.\n';
+
+      const editor = await window.SlateMarkdownEditor.mount(host, {
+        markdown: initialMarkdown,
+        persist: false,
+        persistSettings: false,
+        workspaceMode: 'edit',
+        showReadyToast: false,
+      });
+
+      output.value = editor.getMarkdown();
+      host.addEventListener('slate:change', event => {
+        output.value = event.detail.markdown;
+      });
+    })();
+  </script>
+</body>
+</html>

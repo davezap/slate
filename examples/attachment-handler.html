@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Slate attachment handler example</title>
+  <link rel="stylesheet" href="../slate.css">
+  <style>
+    body { margin: 24px; font-family: system-ui, sans-serif; }
+    #slateHost { height: 620px; border: 1px solid #bbb; }
+    #log { white-space: pre-wrap; font-family: monospace; }
+  </style>
+</head>
+<body>
+  <h1>Host attachment callback</h1>
+  <p>This demo illustrates the callback contract. Replace <code>uploadFile()</code> with your application's upload endpoint.</p>
+  <div id="slateHost"></div>
+  <pre id="log"></pre>
+
+  <script src="../slate.js"></script>
+  <script>
+    (async () => {
+      const log = document.getElementById('log');
+
+      async function uploadFile(file) {
+        // Demo only: a real host should upload the File and return a durable URL.
+        // Returning a made-up path here demonstrates the Slate callback contract.
+        return `uploads/${encodeURIComponent(file.name)}`;
+      }
+
+      const editor = await window.SlateMarkdownEditor.mount('#slateHost', {
+        markdown: '# Attachments\n\nUse the paperclip, paste, or drag/drop a file.\n',
+        persist: false,
+        persistSettings: false,
+        workspaceMode: 'edit',
+        showReadyToast: false,
+        attachmentHandler: async (files, context) => {
+          log.textContent = `Received ${files.length} file(s) from ${context.source}`;
+          const uploaded = [];
+          for (const file of files) {
+            uploaded.push({
+              file,
+              url: await uploadFile(file),
+              label: file.name,
+            });
+          }
+          return uploaded;
+        },
+      });
+
+      void editor;
+    })();
+  </script>
+</body>
+</html>

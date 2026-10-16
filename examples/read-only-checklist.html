@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Slate interactive checklist example</title>
+  <link rel="stylesheet" href="../slate.css">
+  <style>
+    body { margin: 24px; font-family: system-ui, sans-serif; }
+    #slateHost { height: 620px; border: 1px solid #bbb; }
+    #status { margin: 12px 0; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>Published instructions / QA checklist</h1>
+  <p>Text is read-only, while ordinary task checkboxes remain interactive.</p>
+  <div id="status">Loading…</div>
+  <div id="slateHost"></div>
+
+  <script src="../slate.js"></script>
+  <script>
+    (async () => {
+      const host = document.getElementById('slateHost');
+      const status = document.getElementById('status');
+      const markdown = '# Assembly checklist\n\n## Mechanical\n\n- [ ] Fit bracket\n- [ ] Torque fasteners\n\n## Electrical\n\n- [ ] Inspect connector\n- [ ] Complete continuity test\n';
+
+      const editor = await window.SlateMarkdownEditor.mount(host, {
+        markdown,
+        persist: false,
+        persistSettings: false,
+        workspaceMode: 'preview',
+        readOnly: true,
+        interactiveTasks: true,
+        showReadyToast: false,
+      });
+
+      const refresh = () => {
+        const state = editor.getCompletionState();
+        status.textContent = `${state.checked}/${state.total} tasks complete${state.complete ? ' — COMPLETE' : ''}`;
+      };
+
+      refresh();
+      host.addEventListener('slate:completion-change', refresh);
+    })();
+  </script>
+</body>
+</html>

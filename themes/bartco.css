@@ -1,0 +1,67 @@
+/* 0.21.18 — Bartco document styling for the Slate light theme. */
+.slate-editor-host[data-theme="light"] {
+  --bg: #f5f6f2;
+  --panel: #ffffff;
+  --panel-muted: #f4f6f1;
+  --panel-hover: #eef6e4;
+  --border: #dfe5d8;
+  --border-strong: #c8d3bd;
+  --text: #20251e;
+  --text-muted: #60695b;
+  --accent: #8BBE44;
+  --accent-soft: #eef6e4;
+  --accent-strong: #628830;
+  --shadow: 0 1px 2px rgba(45, 58, 37, .05), 0 10px 26px rgba(45, 58, 37, .07);
+}
+.slate-editor-host {
+  --font-ui: "Source Sans Pro", "Source Sans 3", "Segoe UI", Arial, sans-serif;
+  --font-editor: "Source Sans Pro", "Source Sans 3", "Segoe UI", Arial, sans-serif;
+  --font-code: "Cascadia Mono", Consolas, monospace;
+}
+.slate-editor-host .markdown-body code,
+.slate-editor-host .markdown-body pre code {
+  font-family: var(--font-code);
+}
+.slate-editor-host[data-theme="light"] .format-toolbar {
+  border-bottom: 2px solid #EB7A02;
+}
+.slate-editor-host[data-theme="light"] .view-button.active {
+  color: #3f5d22;
+  box-shadow: inset 0 -2px 0 #EB7A02;
+}
+.slate-editor-host[data-theme="light"] .markdown-body h1,
+.slate-editor-host[data-theme="light"] .markdown-body h2,
+.slate-editor-host[data-theme="light"] .markdown-body h3,
+.slate-editor-host[data-theme="light"] .markdown-body h4,
+.slate-editor-host[data-theme="light"] .markdown-body h5,
+.slate-editor-host[data-theme="light"] .markdown-body h6 {
+  font-family: "Source Sans Pro SemiBold", "Source Sans Pro", "Source Sans 3", "Segoe UI", Arial, sans-serif;
+  font-weight: 600;
+}
+.slate-editor-host[data-theme="light"] .markdown-body h1,
+.slate-editor-host[data-theme="light"] .markdown-body h2 {
+  border-bottom-color: #EB7A02;
+}
+.slate-editor-host[data-theme="light"] .markdown-body blockquote {
+  border-left-color: #8BBE44;
+  background: #f4f6f1;
+}
+.slate-editor-host[data-theme="light"] .markdown-body pre {
+  border-color: #d8ddd3;
+  border-left: 4px solid #8BBE44;
+  border-radius: 3px;
+  background: #f1f2ef;
+}
+.slate-editor-host[data-theme="light"] .markdown-body table {
+  border-top: 2px solid #8BBE44;
+}
+.slate-editor-host[data-theme="light"] .markdown-body th,
+.slate-editor-host[data-theme="light"] .markdown-body td {
+  border: 0;
+  border-bottom: 1px solid rgba(235, 122, 2, .72);
+}
+.slate-editor-host[data-theme="light"] .markdown-body th {
+  color: #10150d;
+  background: #8BBE44;
+  font-weight: 700;
+}
