@@ -382,21 +382,12 @@
 .slate-editor-host .markdown-editor{
   width: 100%;
   height: 100%;
-  resize: none;
-  border: 0;
-  outline: none;
+  overflow: hidden;
   background: var(--panel);
-  color: var(--text);
-  padding: 24px clamp(20px, 5vw, 72px) 80px;
-  font-family: var(--font-editor);
-  font-size: 14px;
-  line-height: 1.65;
-  tab-size: 2;
-  overflow: auto;
-  caret-color: var(--accent);
 }
 
-.slate-editor-host .markdown-editor[readonly]{ cursor: default; }
+/* Source mode is CodeMirror; its look is set in src/source-editor.js. */
+.slate-editor-host .markdown-editor .cm-editor.is-readonly .cm-content{ cursor: default; }
 
 .slate-editor-host .drop-overlay{
   position: absolute;
@@ -564,7 +555,7 @@
 @media (max-width: 680px) {
   .slate-editor-host .format-toolbar{ padding-inline: 8px; }
   .slate-editor-host .view-button{ min-width: 62px; padding-inline: 8px; }
-  .slate-editor-host .preview-pane, .slate-editor-host .markdown-editor{ padding-left: 18px; padding-right: 18px; }
+  .slate-editor-host .preview-pane, .slate-editor-host .markdown-editor .cm-content{ padding-left: 18px; padding-right: 18px; }
 }
 
 /* Obsidian-style live source: rendered typography stays in place while only the
@@ -1001,3 +992,42 @@
   .slate-editor-host .workspace-body.outline-external{ grid-template-columns: minmax(0, 1fr); }
   .slate-editor-host .workspace-body.outline-external > .document-outline{ display: none; }
 }
+
+/* Compare (another version shown inline in Source, e.g. a sync conflict). */
+.slate-editor-host .editor-pane{ display: flex; flex-direction: column; }
+.slate-editor-host .editor-pane > .markdown-editor{ flex: 1 1 auto; min-height: 0; height: auto; }
+.slate-editor-host .compare-bar{
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  padding: 7px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-muted);
+  color: var(--text);
+  font: 13px/1.4 var(--font-ui);
+}
+.slate-editor-host .compare-bar[hidden]{ display: none; }
+.slate-editor-host .compare-legend{ display: inline-flex; gap: 12px; flex-wrap: wrap; }
+.slate-editor-host .compare-key{ display: inline-flex; align-items: center; gap: 6px; }
+.slate-editor-host .compare-key::before{ content: ""; width: 10px; height: 10px; border-radius: 3px; }
+.slate-editor-host .compare-key-other::before{ background: #e5534b; }
+.slate-editor-host .compare-key-this::before{ background: #2ea043; }
+.slate-editor-host .compare-summary{ color: var(--text-muted); }
+.slate-editor-host .compare-bar.compare-resolved .compare-summary{ color: var(--text); font-weight: 600; }
+.slate-editor-host .compare-actions{ display: inline-flex; gap: 8px; margin-left: auto; }
+.slate-editor-host .compare-button{
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  font: 12px/1.3 var(--font-ui);
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.slate-editor-host .compare-button:hover:not(:disabled){ background: var(--panel-hover); }
+.slate-editor-host .compare-button:disabled{ opacity: 0.55; cursor: default; }
+.slate-editor-host .compare-done{ background: var(--accent); border-color: var(--accent); color: #fff; }
+.slate-editor-host .compare-done:hover:not(:disabled){ background: var(--accent-strong); }
+.slate-editor-host .compare-chunk-button{ font: 12px/1.3 var(--font-ui); padding: 3px 9px; }
+.slate-editor-host .compare-chunk-button:hover{ filter: brightness(1.1); }

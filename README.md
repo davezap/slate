@@ -1,14 +1,15 @@
-# Slate Markdown Editor Components — 0.9.4
+# Slate Markdown Editor Components — 0.12.0
 
 This project is the reusable Slate Markdown editor extracted from the current Wire integration.
 
 The functional editor remains deliberately simple to reuse: **all editor markup, navigation, formatting controls, modes, outline logic, Markdown rendering, checklist logic, media handling, persistence and public API live in `slate.js`**. A host application only needs `slate.js` and `slate.css`.
 
-There is no build step and the core editor has no third-party JavaScript dependency.
+Edit and Source are one [CodeMirror 6](https://codemirror.net/) editor: Source shows the raw Markdown, Edit draws it in place (Live Preview). Preview is Slate's own read-only rendering. `slate.js` is built from `src/` with CodeMirror bundled in, so hosts still load one script and one stylesheet with no other dependency (see **Building** below).
 
 ## What is included
 
-- `slate.js` — complete Slate 0.9.4 editor/component.
+- `slate.js` — complete Slate 0.12.0 editor/component, built from `src/` (don't edit it by hand).
+- `src/slate.js` — the editor source; `src/source-editor.js` — the CodeMirror editor behind Edit and Source; `src/live-preview.js` — Edit mode's Live Preview drawing.
 - `slate.css` — generic scoped component styling.
 - `themes/bartco.css` — the current Wire/Bartco light-theme overrides, kept separately so the component can be reused elsewhere without forcing Bartco branding.
 - `slate-editor.d.ts` — TypeScript declarations for the host API.
@@ -17,6 +18,19 @@ There is no build step and the core editor has no third-party JavaScript depende
 - `examples/read-only-checklist.html` — read-only instructions with interactive task checkboxes, matching Wire's published-instructions use case.
 - `examples/attachment-handler.html` — host attachment callback example.
 - `docs/attachment-api.md` — attachment callback contract.
+
+## Building
+
+`slate.js` is generated. Edit the files in `src/`, then rebuild (Node.js 20 or newer):
+
+```powershell
+npm install
+npm run build        # minified slate.js, as committed and shipped
+npm run build:dev    # readable slate.js with an inline source map, for debugging
+npm run watch        # rebuild on every change while developing
+```
+
+Commit the rebuilt `slate.js` with the source change, so hosts can keep copying the file.
 
 ## Run the standalone editor
 
@@ -112,9 +126,9 @@ Controls Slate UI settings such as mode and outline state. It defaults to the va
 
 ### `workspaceMode`
 
-- `edit` — Obsidian-style Live Preview editing.
+- `edit` — Obsidian-style Live Preview: the Markdown drawn in place (headings, emphasis, links, lists, task checkboxes, quotes, code, tables, images and videos), with the syntax shown only where the cursor is. Tables, images and videos open as source when the cursor reaches them (or by clicking a table cell or a media block's ✎ button). Enter continues lists, tasks and quotes.
 - `preview` — rendered document.
-- `source` — raw Markdown textarea.
+- `source` — the complete Markdown in a CodeMirror editor (syntax colouring, undo/redo with Ctrl+Z / Ctrl+Y, Tab indents).
 
 ### `readOnly`
 
@@ -151,6 +165,13 @@ isOutlineOpen()
 setOutlineOpen(boolean)
 getOutline()            // { headings: [{ id, level, line, title, checked, total, children }], completion }
 revealLine(line)        // scroll to (or, in Source, select) a zero-based Markdown line
+getTopLine()            // zero-based Markdown line at the top of the view, in any mode
+selectSourceRange(start, end?, { focus? })  // Edit and Source: select offsets into getMarkdown() and scroll them to the middle
+setSourceHighlights(ranges, current?)       // Edit and Source: highlight [start, end) find matches; [] clears
+compare(markdown, { label? })  // show another version inline (see Compare below); resolves to { comparing, label, differences }
+endCompare()            // end it, keeping the document as it stands; returns what was left
+isComparing()
+getCompareState()       // { comparing, label, differences }
 isDocumentComplete()
 getCompletionState()
 onDocumentComplete(callback, options?)
@@ -159,7 +180,19 @@ focus()
 
 The initial global `window.SlateMarkdownEditor` facade also exposes `mount()`, `ready`, and `setAttachmentHandler()`.
 
-Current Slate 0.9.4 supports **one mounted editor per page**.
+`setMarkdown()` replaces the text through the smallest change, so in Edit and Source the cursor and scroll position stay where they were when a host reloads a file that changed on disk. It also clears the undo history, since the new text is a fresh starting point.
+
+### Compare
+
+`compare(markdown, { label })` shows another version of the document inline, using CodeMirror's merge view. It is meant for a host resolving a sync conflict or a file that changed on disk while it was being edited:
+
+```javascript
+await editor.compare(textOnServer, { label: 'Space version' });
+```
+
+Slate switches to Source and shows a bar with the two colours, how many differences are left, **Use all of {label}** and **Done**. Text only in the other version is red, text only in this document green, and each difference has **Keep this** and **Use {label}** buttons. The document itself is what gets edited, so `slate:change`, saving and undo work as usual; the other version is never changed. Done returns to the mode the user was in. The comparison also ends on `endCompare()`, `setMarkdown()`, a mode change or `setReadOnly(true)`, each firing `slate:compare-end`. `compare()` rejects while the editor is read only.
+
+Current Slate 0.12.0 supports **one mounted editor per page**.
 
 ## Events
 
@@ -198,6 +231,15 @@ host.addEventListener('slate:outline', event => {
 ```javascript
 host.addEventListener('slate:outline-toggle', event => {
   console.log(event.detail.open); // after Ctrl+Shift+O, setOutlineOpen() or the panel buttons
+});
+```
+
+### Compare ended
+
+```javascript
+host.addEventListener('slate:compare-end', event => {
+  // reason: 'done' | 'host' | 'replaced' | 'mode' | 'read-only'; differences: how many were left
+  const { reason, label, differences, markdown } = event.detail;
 });
 ```
 
@@ -297,7 +339,7 @@ This is intentional: host applications mount one component rather than recreatin
 
 ## Current editor features preserved from Wire
 
-- Obsidian-style Live Preview with marker reveal while editing.
+- Obsidian-style Live Preview with marker reveal while editing (on CodeMirror since 0.11.0, sharing Source's undo history).
 - Edit, Preview and Source modes.
 - Formatting controls for bold, italic, strike, headings, blockquote, inline/code block, links, wiki links, tasks and video syntax.
 - Headings through level six.
@@ -316,10 +358,26 @@ This is intentional: host applications mount one component rather than recreatin
 
 ## Limitations
 
-- One Slate editor instance per page in 0.9.4.
+- One Slate editor instance per page in 0.12.0.
+- Edit draws headings written with `#` only; a line of `---` under text shows as a rule, matching Preview.
 - The built-in Markdown parser covers the Markdown used by Slate/Wire but is not a complete CommonMark implementation.
 - Wiki links render but Slate does not provide a note collection/router itself.
 - Remote video providers may load their official browser APIs when needed.
+
+## How Metatrash, Slate and Slate Viewer fit together
+
+These three projects are parts of one whole, kept in sibling folders:
+
+- **Metatrash** (`metatrash.com - 2026`) is the service: shared spaces of text files backed by Git,
+  reached over MCP and REST, plus `mtsync`, which syncs a space with a local folder.
+- **Slate** (`Slate`) is the Markdown editor component. Slate Viewer and other hosts embed its
+  built `slate.js` and `slate.css`; fix editor bugs here, not in a host's copy.
+- **Slate Viewer** (`Slate_Viewer`) is the desktop app. It vendors Slate in `public/slate/`. For now it
+  is a handy Markdown editor that can also open Metatrash spaces (through `mtsync`). Over time it
+  becomes the desktop companion for managing Metatrash spaces, and those features come later.
+
+Metatrash's website still bundles an older Slate (0.9.2) for read-only viewing. It isn't
+upgraded yet.
 
 ## Relationship to Wire
 

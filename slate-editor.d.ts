@@ -65,6 +65,21 @@ export interface SlateOutline {
   completion: SlateCompletionState;
 }
 
+export interface SlateCompareState {
+  comparing: boolean;
+  label: string;
+  /** Differences not yet resolved with Keep this / Use {label}. */
+  differences: number;
+}
+
+export interface SlateCompareEndDetail {
+  /** 'done' (the Done button), 'host' (endCompare()), 'replaced' (setMarkdown()), 'mode' or 'read-only'. */
+  reason: 'done' | 'host' | 'replaced' | 'mode' | 'read-only';
+  label: string;
+  differences: number;
+  markdown: string;
+}
+
 export interface SlateEditorApi {
   readonly version: string;
   readonly host: Element;
@@ -80,6 +95,27 @@ export interface SlateEditorApi {
   setOutlineOpen(open: boolean): void;
   getOutline(): SlateOutline;
   revealLine(line: number): void;
+  /** The zero-based Markdown line at the top of the view, in any mode. */
+  getTopLine(): number;
+  /**
+   * Edit and Source modes: selects [start, end) (offsets into getMarkdown()) and scrolls it to the
+   * middle of the view. `focus: false` leaves the keyboard focus where it is.
+   */
+  selectSourceRange(start: number, end?: number, options?: { focus?: boolean }): void;
+  /** Highlights find matches in Edit and Source; `current` is the index of the one to emphasise. Pass [] to clear. */
+  setSourceHighlights(ranges: [number, number][], current?: number): void;
+  /**
+   * Shows `markdown` (another version of this document, such as the copy on a server) inline:
+   * text only in that version is red, text only in this document green, and each difference has
+   * "Keep this" / "Use {label}" buttons. Switches to Source while comparing; the document stays
+   * editable and saves as usual. Ends on Done, endCompare(), setMarkdown(), a mode change or
+   * setReadOnly(true), firing `slate:compare-end`. Rejects while read only.
+   */
+  compare(markdown: string, options?: { label?: string }): Promise<SlateCompareState>;
+  /** Ends the comparison, keeping the document as it stands; returns what was left. */
+  endCompare(): SlateCompareState;
+  isComparing(): boolean;
+  getCompareState(): SlateCompareState;
   isDocumentComplete(): boolean;
   getCompletionState(): SlateCompletionState;
   onDocumentComplete(

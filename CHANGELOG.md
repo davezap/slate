@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.12.0 — 2026-10-17
+
+- Added Compare: `compare(markdown, { label })` shows another version of the document inline with CodeMirror's merge view (red for text only in that version, green for text only in this document), with **Keep this** and **Use {label}** on each difference and **Use all of {label}** and **Done** in a bar above the editor. The document stays editable and saves as usual. Slate Viewer uses it for files that changed on disk while being edited and for sync conflict copies.
+- Added `endCompare()`, `isComparing()`, `getCompareState()` and the `slate:compare-end` event.
+- Bundles `@codemirror/merge`.
+
+## 0.11.0 — 2026-10-17
+
+- Edit (Live Preview) mode now runs on the same CodeMirror editor as Source, with the Markdown drawn in place: headings, bold, italic, strikethrough, inline code, links, wiki links, bullets, task checkboxes, quotes, rules and code blocks. The syntax shows only around the cursor (the line for headings and quotes, the element for inline formatting, the marker for lists and tasks).
+- Tables, standalone images and videos are drawn as blocks in Edit. Putting the cursor on one (arrow keys, clicking a table cell, or a media block's ✎ button) shows its source in the editor font, with an image or video still drawn underneath.
+- Undo and redo now work in Edit, and Edit and Source share one history, cursor and scroll position (the line at the top stays put when switching).
+- Task checkboxes tick in Edit with a click; video tasks still tick themselves when watched through, in Edit and Preview.
+- Enter continues lists, tasks and quotes in Edit, and ends the list on an empty item, as before.
+- Ctrl+Click opens a link in Edit.
+- `selectSourceRange()` and `setSourceHighlights()` now work in Edit as well as Source, so hosts can use the same find in both.
+- Added `getTopLine()`: the zero-based Markdown line at the top of the view, in any mode, for hosts that track the current heading.
+- Preview is drawn only while it shows, rather than after every edit.
+- Removed Slate's old per-line Edit editor.
+
+## 0.10.0 — 2026-10-16
+
+- Source mode is now a CodeMirror 6 editor instead of a textarea: Markdown syntax colouring, real undo and redo (Ctrl+Z, Ctrl+Y / Ctrl+Shift+Z) including toolbar changes, Tab / Shift+Tab indent, and long documents stay fast. Spellcheck, the toolbar, Ctrl+B / Ctrl+I / Ctrl+K, paste and drop of files and the outline work as before.
+- `setMarkdown()` applies only what changed, so in Source mode the cursor and scroll position survive a host reloading a file that changed on disk. It clears the undo history.
+- Added `selectSourceRange(start, end, { focus })` and `setSourceHighlights(ranges, current)` so hosts can show find results in Source mode.
+- `slate.js` is now built from `src/` with esbuild (`npm run build`), with CodeMirror bundled in. Hosts still load just `slate.js` and `slate.css` (about 385 KB minified, 120 KB gzipped).
+- Edit (Live Preview) mode is unchanged in this release.
+
 ## 0.9.4 — 2026-10-16
 
 - Added the `outlinePanel: false` mount option for hosts that draw their own document navigation: Slate's outline panel and gutter are hidden and the document takes the full width.
