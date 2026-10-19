@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.14.1 — 2026-10-19
+
+- Diagrams work on pages whose Content-Security-Policy doesn't allow inline styles (Metatrash's website): Mermaid's CSS now goes into a constructed stylesheet (`document.adoptedStyleSheets`) instead of a `<style>` inside each SVG.
+- A diagram can't set its own CSS with a `%%{init: {"themeCSS": …}}%%` directive any more; Slate adds `themeCSS` to Mermaid's `secure` keys, since sites show diagrams written by other people.
+
+## 0.14.0 — 2026-10-19
+
+- Diagrams: fenced code blocks tagged `mermaid` are drawn with Mermaid in Preview and Edit. In Edit they are blocks like tables: clicking one (or its ✎) shows the source with the diagram drawn under it as you type. Mistakes show Mermaid's message above the source. Diagrams follow the host's light or dark theme.
+- Mermaid lives in the new `mermaid/` folder (`mermaid.js` plus a chunk per diagram type), loaded from next to `slate.js` only when a document has a diagram, so `slate.js` stays the same size. The new `diagramsUrl` mount option points elsewhere. `npm run build` now builds both (`build:slate`, `build:mermaid`).
+- Edit re-measures block heights when a table, image or diagram finishes drawing.
+
+## 0.13.0 — 2026-10-19
+
+- Bare web addresses (`https://example.com`, `www.example.com`) and `<https://…>` autolinks are now links in Preview and Edit, as on GitHub. Trailing sentence punctuation stays out of the link.
+- Web links show a small ↗ after them in Preview and Edit. In Edit a plain click on the ↗ opens the link without moving the cursor (Ctrl+click on the text still works too). The icon has the class `slate-external-icon` and carries `data-md-url`, so hosts can route it.
+
 ## 0.12.0 — 2026-10-17
 
 - Added Compare: `compare(markdown, { label })` shows another version of the document inline with CodeMirror's merge view (red for text only in that version, green for text only in this document), with **Keep this** and **Use {label}** on each difference and **Use all of {label}** and **Done** in a bar above the editor. The document stays editable and saves as usual. Slate Viewer uses it for files that changed on disk while being edited and for sync conflict copies.

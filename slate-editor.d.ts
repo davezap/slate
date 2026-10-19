@@ -47,6 +47,8 @@ export interface SlateMountOptions {
   resolveUrl?: SlateUrlResolver | null;
   /** false hides Slate's own outline panel so the host can draw one from getOutline(). */
   outlinePanel?: boolean;
+  /** Full URL of mermaid/mermaid.js, loaded for ```mermaid diagrams. Default: next to slate.js. */
+  diagramsUrl?: string;
 }
 
 export interface SlateOutlineHeading {

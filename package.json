@@ -1,0 +1,26 @@
+{
+  "name": "slate-markdown-editor",
+  "private": true,
+  "version": "0.14.1",
+  "description": "Slate Markdown editor component. src/ is bundled with CodeMirror into slate.js.",
+  "scripts": {
+    "build": "npm run build:slate && npm run build:mermaid",
+    "build:slate": "esbuild src/slate.js --bundle --format=iife --target=es2020 --minify --legal-comments=eof --banner:js=\"/* Slate Markdown Editor. Built from src/ by npm run build: edit src/, not this file. */\" --outfile=slate.js",
+    "build:mermaid": "node -e \"require('fs').rmSync('mermaid',{recursive:true,force:true})\" && esbuild src/mermaid-entry.js --bundle --format=esm --splitting --target=es2020 --minify --legal-comments=eof --outdir=mermaid --entry-names=mermaid --chunk-names=chunks/[name]-[hash]",
+    "build:dev": "esbuild src/slate.js --bundle --format=iife --target=es2020 --sourcemap=inline --outfile=slate.js",
+    "watch": "esbuild src/slate.js --bundle --format=iife --target=es2020 --sourcemap=inline --outfile=slate.js --watch"
+  },
+  "dependencies": {
+    "@codemirror/commands": "^6.8.0",
+    "@codemirror/language": "^6.11.0",
+    "@codemirror/merge": "^6.12.2",
+    "@codemirror/state": "^6.5.0",
+    "@codemirror/view": "^6.36.0",
+    "@lezer/highlight": "^1.2.0",
+    "@lezer/markdown": "^1.8.0",
+    "mermaid": "12.1.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}

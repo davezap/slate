@@ -1,4 +1,4 @@
-# Slate Markdown Editor Components — 0.12.0
+# Slate Markdown Editor Components — 0.14.1
 
 This project is the reusable Slate Markdown editor extracted from the current Wire integration.
 
@@ -8,9 +8,10 @@ Edit and Source are one [CodeMirror 6](https://codemirror.net/) editor: Source s
 
 ## What is included
 
-- `slate.js` — complete Slate 0.12.0 editor/component, built from `src/` (don't edit it by hand).
+- `slate.js` — complete Slate 0.14.1 editor/component, built from `src/` (don't edit it by hand).
 - `src/slate.js` — the editor source; `src/source-editor.js` — the CodeMirror editor behind Edit and Source; `src/live-preview.js` — Edit mode's Live Preview drawing.
 - `slate.css` — generic scoped component styling.
+- `mermaid/` — [Mermaid](https://mermaid.js.org/) for diagrams, built from `src/mermaid-entry.js`: `mermaid.js` plus a chunk per diagram type. Hosts copy the folder next to `slate.js`; it is loaded only when a document has a diagram (see **Diagrams**).
 - `themes/bartco.css` — the current Wire/Bartco light-theme overrides, kept separately so the component can be reused elsewhere without forcing Bartco branding.
 - `slate-editor.d.ts` — TypeScript declarations for the host API.
 - `index.html` — standalone persistent editor using the Bartco theme.
@@ -25,12 +26,13 @@ Edit and Source are one [CodeMirror 6](https://codemirror.net/) editor: Source s
 
 ```powershell
 npm install
-npm run build        # minified slate.js, as committed and shipped
+npm run build        # minified slate.js and mermaid/, as committed and shipped
 npm run build:dev    # readable slate.js with an inline source map, for debugging
 npm run watch        # rebuild on every change while developing
 ```
 
-Commit the rebuilt `slate.js` with the source change, so hosts can keep copying the file.
+Commit the rebuilt `slate.js` (and `mermaid/` when Mermaid changes) with the source change, so hosts can keep copying the files.
+`npm run build:slate` and `npm run build:mermaid` build one of them.
 
 ## Run the standalone editor
 
@@ -104,8 +106,25 @@ const editor = await window.SlateMarkdownEditor.mount(host, {
   attachmentHandler: null,
   resolveUrl: null,
   outlinePanel: true,
+  diagramsUrl: '',              // where mermaid/mermaid.js is; default: next to slate.js
 });
 ```
+
+### Diagrams and `diagramsUrl`
+
+A fenced code block tagged `mermaid` is drawn as a diagram in Preview and Edit (flowcharts, sequence, state, class and Gantt diagrams, mind maps, pie charts and the rest of [Mermaid](https://mermaid.js.org/)):
+
+````markdown
+```mermaid
+flowchart LR
+  A[Start] --> B{Ok?}
+  B -- yes --> C[Done]
+```
+````
+
+Mermaid is large, so it isn't in `slate.js`. The first diagram in a page loads `mermaid/mermaid.js` (an ES module) from the folder `slate.js` was loaded from, and that loads only the chunks its diagram types need (a flowchart is about 2.3 MB, read once). Pass `diagramsUrl` with the full URL of `mermaid.js` if it lives elsewhere. Until it loads, or if it can't, the block shows its source. A diagram with a mistake shows Mermaid's message above its source.
+
+In Edit a diagram is a block like a table: clicking it, or its ✎ button, shows the source with the diagram drawn underneath as you type. Diagrams follow the host's light or dark theme (`data-theme` on the host). Mermaid runs with `securityLevel: 'strict'`, so diagram text can't run script or load anything.
 
 ### `outlinePanel`
 
@@ -114,6 +133,8 @@ const editor = await window.SlateMarkdownEditor.mount(host, {
 ### `resolveUrl`
 
 Optional `(url, { kind }) => string`, where `kind` is `image` or `link`. Slate calls it when rendering an image `src` or link `href`, so a host can map relative paths (for example `img/a.png`) to something its page can load, such as a desktop app's file URL for the document's folder. The Markdown keeps the original URL; the rendered element carries it in `data-md-url`. Return a falsy value to leave a URL unchanged. `attachment://` URLs are never passed to it.
+
+Web links (`http://`, `https://`) get a small ↗ after them. Bare addresses (`https://example.com`, `www.example.com`) and `<https://…>` are links too, as on GitHub. In Edit a plain click on a link's text places the cursor and Ctrl+click opens it; a plain click on the ↗ (class `slate-external-icon`, carrying `data-md-url`) opens it. Hosts that route links themselves can catch clicks on that class too.
 
 ### `persist`
 
@@ -192,7 +213,7 @@ await editor.compare(textOnServer, { label: 'Space version' });
 
 Slate switches to Source and shows a bar with the two colours, how many differences are left, **Use all of {label}** and **Done**. Text only in the other version is red, text only in this document green, and each difference has **Keep this** and **Use {label}** buttons. The document itself is what gets edited, so `slate:change`, saving and undo work as usual; the other version is never changed. Done returns to the mode the user was in. The comparison also ends on `endCompare()`, `setMarkdown()`, a mode change or `setReadOnly(true)`, each firing `slate:compare-end`. `compare()` rejects while the editor is read only.
 
-Current Slate 0.12.0 supports **one mounted editor per page**.
+Current Slate 0.14.1 supports **one mounted editor per page**.
 
 ## Events
 
@@ -358,7 +379,7 @@ This is intentional: host applications mount one component rather than recreatin
 
 ## Limitations
 
-- One Slate editor instance per page in 0.12.0.
+- One Slate editor instance per page in 0.14.1.
 - Edit draws headings written with `#` only; a line of `---` under text shows as a rule, matching Preview.
 - The built-in Markdown parser covers the Markdown used by Slate/Wire but is not a complete CommonMark implementation.
 - Wiki links render but Slate does not provide a note collection/router itself.
