@@ -1,7 +1,7 @@
 {
   "name": "slate-markdown-editor",
   "private": true,
-  "version": "0.14.1",
+  "version": "0.15.0",
   "description": "Slate Markdown editor component. src/ is bundled with CodeMirror into slate.js.",
   "scripts": {
     "build": "npm run build:slate && npm run build:mermaid",

@@ -104,6 +104,13 @@ export interface SlateEditorApi {
    * middle of the view. `focus: false` leaves the keyboard focus where it is.
    */
   selectSourceRange(start: number, end?: number, options?: { focus?: boolean }): void;
+  /** The cursor or selection as [start, end] offsets into getMarkdown(); kept while in Preview. */
+  getSourceSelection(): [number, number];
+  /**
+   * Puts a saved place back: the cursor or selection without scrolling to it, then `topLine`
+   * (zero-based) at the top of the view, in any mode. `focus` focuses the editor in Edit and Source.
+   */
+  restoreView(view: { selection?: [number, number] | null; topLine?: number; focus?: boolean }): void;
   /** Highlights find matches in Edit and Source; `current` is the index of the one to emphasise. Pass [] to clear. */
   setSourceHighlights(ranges: [number, number][], current?: number): void;
   /**

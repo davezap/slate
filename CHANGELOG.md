@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.15.0 — 2026-10-19
+
+- Edit: a plain click on a link in a table (or in a block's caption) no longer opens the link; it places the cursor in that cell to edit it, like links in the text. Ctrl+click opens it. Before, the editor ignored clicks inside blocks, so the browser followed the link into a new window.
+- Edit: Ctrl+click on a link in the text opens it reliably. Ctrl+click used to add a second cursor first, which showed the link's syntax and swallowed the click.
+- Added `getSourceSelection()` (the cursor or selection as offsets into the Markdown, kept in every mode) and `restoreView({ selection, topLine, focus })`, which puts a saved place back: the selection without scrolling, then the given line at the top of the view, in any mode. Slate Viewer uses them to reopen a folder where you left off.
+
 ## 0.14.1 — 2026-10-19
 
 - Diagrams work on pages whose Content-Security-Policy doesn't allow inline styles (Metatrash's website): Mermaid's CSS now goes into a constructed stylesheet (`document.adoptedStyleSheets`) instead of a `<style>` inside each SVG.

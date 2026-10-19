@@ -157,6 +157,11 @@ class BlockWidget extends WidgetType {
 
     dom.addEventListener('mousedown', event => {
       if (event.button !== 0) return;
+      // Ctrl+click on a link in a table follows it (see the click handler below), so leave the cursor.
+      if (event.target.closest('a') && (event.ctrlKey || event.metaKey)) {
+        event.preventDefault();
+        return;
+      }
       const toggle = event.target.closest('.media-source-toggle');
       if (toggle) {
         event.preventDefault();
@@ -170,7 +175,15 @@ class BlockWidget extends WidgetType {
         reveal(1);
         return;
       }
-      if (this.block.type !== 'table' || event.target.closest('a')) return;
+      if (this.block.type !== 'table') {
+        // A link in an image's caption or alt text: show the source to edit it.
+        if (event.target.closest('a')) {
+          event.preventDefault();
+          reveal(0);
+        }
+        return;
+      }
+      // A plain click on a link in a cell edits that cell, like a click anywhere else in it.
       event.preventDefault();
       // The clicked cell: header row is the table's first line, body row n is line n + 2.
       const row = event.target.closest('tr');
@@ -181,6 +194,14 @@ class BlockWidget extends WidgetType {
       const start = view.state.doc.lineAt(view.posAtDOM(dom));
       const lineNumber = Math.min(view.state.doc.lines, start.number + lineOffset);
       reveal(lineOffset, cellEnd(view.state.doc.line(lineNumber).text, cellIndex));
+    });
+    // The editor ignores events inside blocks, so links in them would otherwise load their
+    // target (a new window) on a plain click. Here, as in the text, only Ctrl+click opens one.
+    dom.addEventListener('click', event => {
+      const link = event.target.closest('a');
+      if (!link || link.closest('svg')) return;
+      event.preventDefault();
+      if ((event.ctrlKey || event.metaKey) && link.dataset.mdUrl) window.open(link.href, '_blank', 'noopener');
     });
     return dom;
   }
@@ -499,13 +520,17 @@ export function livePreview(options) {
     inlinePlugin,
     EditorView.editorAttributes.of({ class: 'cm-slate-live' }),
     EditorView.domEventHandlers({
-      // The ↗ after a web link opens it without moving the cursor (which would show the link's syntax).
+      // The ↗ after a web link, and Ctrl+click on a link, open it without moving the cursor (which
+      // would show the link's syntax, and Ctrl+click would add a second cursor, so the click
+      // never reached the link).
       mousedown(event) {
-        if (!event.target.closest?.('.cm-slate-external')) return false;
+        const opens = event.target.closest?.('.cm-slate-external')
+          || ((event.ctrlKey || event.metaKey) && event.target.closest?.('a.cm-slate-link, .cm-slate-wiki'));
+        if (!opens) return false;
         event.preventDefault();
         return true;
       },
-      // Links are for reading here: a click places the cursor, Ctrl+click opens the link.
+      // A plain click on a link places the cursor in it, to edit it; Ctrl+click opens the link.
       click(event, view) {
         const external = event.target.closest?.('.cm-slate-external');
         if (external && view.contentDOM.contains(external)) {

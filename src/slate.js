@@ -6,7 +6,7 @@ import { createSourceEditor } from './source-editor.js';
   // Where slate.js was loaded from, to find mermaid/ next to it.
   const SCRIPT_URL = document.currentScript?.src || '';
 
-  const APP_VERSION = '0.14.1';
+  const APP_VERSION = '0.15.0';
   const DB_NAME = 'slate-markdown-editor-db';
   const DB_VERSION = 1;
   const NODE_STORE = 'documents';
@@ -2368,6 +2368,24 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     });
   }
 
+  /**
+   * Puts a host's saved place back: the cursor or selection (offsets into the Markdown, kept in
+   * every mode) without scrolling to it, then `topLine` at the top of the view, in any mode.
+   */
+  function restoreView({ selection, topLine, focus = false } = {}) {
+    if (Array.isArray(selection) && selection.length) {
+      const length = el.markdownEditor.value.length;
+      const clampOffset = value => Math.max(0, Math.min(length, Math.floor(Number(value)) || 0));
+      el.markdownEditor.setSelectionRange(clampOffset(selection[0]), clampOffset(selection[1] ?? selection[0]), { scroll: false });
+    }
+    if (focus && state.editorMode === 'edit') el.markdownEditor.focus();
+    const line = Number(topLine);
+    if (Number.isInteger(line) && line >= 0) {
+      if (state.editorMode === 'edit') el.markdownEditor.scrollToLine(line);
+      else scrollPreviewToLine(line);
+    }
+  }
+
   /** The zero-based Markdown line at the top of the visible document (24px down). */
   function getTopLine() {
     if (state.editorMode === 'edit') return el.markdownEditor.topLine();
@@ -3143,6 +3161,12 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
         if (options.focus !== false) el.markdownEditor.focus();
         el.markdownEditor.setSelectionRange(Number(start), Number(end ?? start), { y: 'center' });
       },
+      getSourceSelection() {
+        return [el.markdownEditor.selectionStart, el.markdownEditor.selectionEnd];
+      },
+      restoreView(options = {}) {
+        restoreView(options);
+      },
       setSourceHighlights(ranges, current = -1) {
         el.markdownEditor.setFindMatches(Array.isArray(ranges) ? ranges : [], Number(current));
       },
@@ -3191,7 +3215,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     const methodNames = [
       'getMarkdown', 'setMarkdown', 'getWorkspaceMode', 'setWorkspaceMode', 'setReadOnly',
       'isOutlineOpen', 'setOutlineOpen', 'getOutline', 'revealLine', 'getTopLine', 'compare', 'endCompare',
-      'isComparing', 'getCompareState', 'selectSourceRange', 'setSourceHighlights', 'isDocumentComplete', 'getCompletionState',
+      'isComparing', 'getCompareState', 'selectSourceRange', 'getSourceSelection', 'restoreView', 'setSourceHighlights', 'isDocumentComplete', 'getCompletionState',
       'onDocumentComplete', 'focus'
     ];
     methodNames.forEach(name => {

@@ -1,4 +1,4 @@
-# Slate Markdown Editor Components — 0.14.1
+# Slate Markdown Editor Components — 0.15.0
 
 This project is the reusable Slate Markdown editor extracted from the current Wire integration.
 
@@ -8,7 +8,7 @@ Edit and Source are one [CodeMirror 6](https://codemirror.net/) editor: Source s
 
 ## What is included
 
-- `slate.js` — complete Slate 0.14.1 editor/component, built from `src/` (don't edit it by hand).
+- `slate.js` — complete Slate 0.15.0 editor/component, built from `src/` (don't edit it by hand).
 - `src/slate.js` — the editor source; `src/source-editor.js` — the CodeMirror editor behind Edit and Source; `src/live-preview.js` — Edit mode's Live Preview drawing.
 - `slate.css` — generic scoped component styling.
 - `mermaid/` — [Mermaid](https://mermaid.js.org/) for diagrams, built from `src/mermaid-entry.js`: `mermaid.js` plus a chunk per diagram type. Hosts copy the folder next to `slate.js`; it is loaded only when a document has a diagram (see **Diagrams**).
@@ -134,7 +134,7 @@ In Edit a diagram is a block like a table: clicking it, or its ✎ button, shows
 
 Optional `(url, { kind }) => string`, where `kind` is `image` or `link`. Slate calls it when rendering an image `src` or link `href`, so a host can map relative paths (for example `img/a.png`) to something its page can load, such as a desktop app's file URL for the document's folder. The Markdown keeps the original URL; the rendered element carries it in `data-md-url`. Return a falsy value to leave a URL unchanged. `attachment://` URLs are never passed to it.
 
-Web links (`http://`, `https://`) get a small ↗ after them. Bare addresses (`https://example.com`, `www.example.com`) and `<https://…>` are links too, as on GitHub. In Edit a plain click on a link's text places the cursor and Ctrl+click opens it; a plain click on the ↗ (class `slate-external-icon`, carrying `data-md-url`) opens it. Hosts that route links themselves can catch clicks on that class too.
+Web links (`http://`, `https://`) get a small ↗ after them. Bare addresses (`https://example.com`, `www.example.com`) and `<https://…>` are links too, as on GitHub. In Edit a plain click on a link's text (in the text or in a table) places the cursor there to edit it and Ctrl+click opens it; a plain click on the ↗ (class `slate-external-icon`, carrying `data-md-url`) opens it. Hosts that route links themselves can catch clicks on that class too.
 
 ### `persist`
 
@@ -188,6 +188,8 @@ getOutline()            // { headings: [{ id, level, line, title, checked, total
 revealLine(line)        // scroll to (or, in Source, select) a zero-based Markdown line
 getTopLine()            // zero-based Markdown line at the top of the view, in any mode
 selectSourceRange(start, end?, { focus? })  // Edit and Source: select offsets into getMarkdown() and scroll them to the middle
+getSourceSelection()    // [start, end] of the cursor or selection, offsets into getMarkdown() (kept in Preview too)
+restoreView({ selection?, topLine?, focus? })  // put a saved place back: the selection without scrolling, then topLine at the top, in any mode
 setSourceHighlights(ranges, current?)       // Edit and Source: highlight [start, end) find matches; [] clears
 compare(markdown, { label? })  // show another version inline (see Compare below); resolves to { comparing, label, differences }
 endCompare()            // end it, keeping the document as it stands; returns what was left
@@ -213,7 +215,7 @@ await editor.compare(textOnServer, { label: 'Space version' });
 
 Slate switches to Source and shows a bar with the two colours, how many differences are left, **Use all of {label}** and **Done**. Text only in the other version is red, text only in this document green, and each difference has **Keep this** and **Use {label}** buttons. The document itself is what gets edited, so `slate:change`, saving and undo work as usual; the other version is never changed. Done returns to the mode the user was in. The comparison also ends on `endCompare()`, `setMarkdown()`, a mode change or `setReadOnly(true)`, each firing `slate:compare-end`. `compare()` rejects while the editor is read only.
 
-Current Slate 0.14.1 supports **one mounted editor per page**.
+Current Slate 0.15.0 supports **one mounted editor per page**.
 
 ## Events
 
@@ -379,7 +381,7 @@ This is intentional: host applications mount one component rather than recreatin
 
 ## Limitations
 
-- One Slate editor instance per page in 0.14.1.
+- One Slate editor instance per page in 0.15.0.
 - Edit draws headings written with `#` only; a line of `---` under text shows as a rule, matching Preview.
 - The built-in Markdown parser covers the Markdown used by Slate/Wire but is not a complete CommonMark implementation.
 - Wiki links render but Slate does not provide a note collection/router itself.
