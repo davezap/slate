@@ -10,7 +10,7 @@ import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirro
 import { HighlightStyle, Language, defineLanguageFacet, languageDataProp, syntaxHighlighting } from '@codemirror/language';
 import { GFM, parser as markdownParser } from '@lezer/markdown';
 import { tags } from '@lezer/highlight';
-import { getChunks, getOriginalDoc, unifiedMergeView } from '@codemirror/merge';
+import { getChunks, getOriginalDoc, goToNextChunk, goToPreviousChunk, unifiedMergeView } from '@codemirror/merge';
 import { livePreview, livePreviewHighlight, syncLivePreviewFocus } from './live-preview.js';
 
 const programmatic = Annotation.define();
@@ -254,7 +254,8 @@ export function createSourceEditor(parent, options = {}) {
     /**
      * Shows how the text differs from `other`, inline: other's lines in red above the lines that
      * replace them in green. `control(type, action)` draws each difference's buttons ('accept'
-     * keeps this text, 'reject' takes other's); `onChange` runs after every update.
+     * keeps this text, 'reject' takes other's), and `control: false` leaves them out (Show
+     * Changes); `onChange` runs after every update.
      */
     startCompare(other, compareOptions = {}) {
       comparing = true;
@@ -262,9 +263,11 @@ export function createSourceEditor(parent, options = {}) {
         effects: comparison.reconfigure([
           unifiedMergeView({
             original: String(other ?? ''),
-            mergeControls: compareOptions.control || true,
+            mergeControls: compareOptions.control === false ? false : compareOptions.control || true,
             allowInlineDiffs: true,
             collapseUnchanged: { margin: 3, minSize: 6 },
+            // Long documents with many changes still get each change, not one big one.
+            diffConfig: { scanLimit: 20000, timeout: 1500 },
           }),
           EditorView.updateListener.of(() => compareOptions.onChange?.()),
           compareTheme,
@@ -279,6 +282,10 @@ export function createSourceEditor(parent, options = {}) {
     get differences() {
       if (!comparing) return 0;
       return getChunks(view.state)?.chunks.length ?? 0;
+    },
+    /** Moves to the next (1) or previous (-1) difference while comparing. */
+    goToChange(direction) {
+      if (comparing) (direction < 0 ? goToPreviousChunk : goToNextChunk)(view);
     },
     /** The text being compared with. */
     get compareText() {

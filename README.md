@@ -1,4 +1,4 @@
-# Slate Markdown Editor Components — 0.15.0
+# Slate Markdown Editor Components — 0.17.0
 
 This project is the reusable Slate Markdown editor extracted from the current Wire integration.
 
@@ -8,8 +8,8 @@ Edit and Source are one [CodeMirror 6](https://codemirror.net/) editor: Source s
 
 ## What is included
 
-- `slate.js` — complete Slate 0.15.0 editor/component, built from `src/` (don't edit it by hand).
-- `src/slate.js` — the editor source; `src/source-editor.js` — the CodeMirror editor behind Edit and Source; `src/live-preview.js` — Edit mode's Live Preview drawing.
+- `slate.js` — complete Slate 0.17.0 editor/component, built from `src/` (don't edit it by hand).
+- `src/slate.js` — the editor source; `src/source-editor.js` — the CodeMirror editor behind Edit and Source; `src/live-preview.js` — Edit mode's Live Preview drawing; `src/changes.js` — the block and word comparison behind Show Changes.
 - `slate.css` — generic scoped component styling.
 - `mermaid/` — [Mermaid](https://mermaid.js.org/) for diagrams, built from `src/mermaid-entry.js`: `mermaid.js` plus a chunk per diagram type. Hosts copy the folder next to `slate.js`; it is loaded only when a document has a diagram (see **Diagrams**).
 - `themes/bartco.css` — the current Wire/Bartco light-theme overrides, kept separately so the component can be reused elsewhere without forcing Bartco branding.
@@ -101,7 +101,7 @@ const editor = await window.SlateMarkdownEditor.mount(host, {
   outlineOpen: true,
   readOnly: false,
   interactiveTasks: false,
-  theme: 'auto',                // auto | light | dark
+  theme: 'auto',                // auto | light | dark | paper
   showReadyToast: false,
   attachmentHandler: null,
   resolveUrl: null,
@@ -124,7 +124,7 @@ flowchart LR
 
 Mermaid is large, so it isn't in `slate.js`. The first diagram in a page loads `mermaid/mermaid.js` (an ES module) from the folder `slate.js` was loaded from, and that loads only the chunks its diagram types need (a flowchart is about 2.3 MB, read once). Pass `diagramsUrl` with the full URL of `mermaid.js` if it lives elsewhere. Until it loads, or if it can't, the block shows its source. A diagram with a mistake shows Mermaid's message above its source.
 
-In Edit a diagram is a block like a table: clicking it, or its ✎ button, shows the source with the diagram drawn underneath as you type. Diagrams follow the host's light or dark theme (`data-theme` on the host). Mermaid runs with `securityLevel: 'strict'`, so diagram text can't run script or load anything.
+In Edit a diagram is a block like a table: clicking it, or its ✎ button, shows the source with the diagram drawn underneath as you type. Diagrams follow the host's theme (`data-theme` on the host: light, dark or paper). Mermaid runs with `securityLevel: 'strict'`, so diagram text can't run script or load anything.
 
 ### `outlinePanel`
 
@@ -195,6 +195,11 @@ compare(markdown, { label? })  // show another version inline (see Compare below
 endCompare()            // end it, keeping the document as it stands; returns what was left
 isComparing()
 getCompareState()       // { comparing, label, differences }
+showChanges(markdown, { label?, to?, toLabel? })  // show what changed since another version, read only (see Show Changes below)
+hideChanges()           // back to the document; returns what was shown
+isShowingChanges()
+getChangesState()       // { showing, label, toLabel, changes }
+setChangesToggle(handler | null)  // a "± Changes" toolbar toggle; on calls handler, which calls showChanges()
 isDocumentComplete()
 getCompletionState()
 onDocumentComplete(callback, options?)
@@ -215,7 +220,20 @@ await editor.compare(textOnServer, { label: 'Space version' });
 
 Slate switches to Source and shows a bar with the two colours, how many differences are left, **Use all of {label}** and **Done**. Text only in the other version is red, text only in this document green, and each difference has **Keep this** and **Use {label}** buttons. The document itself is what gets edited, so `slate:change`, saving and undo work as usual; the other version is never changed. Done returns to the mode the user was in. The comparison also ends on `endCompare()`, `setMarkdown()`, a mode change or `setReadOnly(true)`, each firing `slate:compare-end`. `compare()` rejects while the editor is read only.
 
-Current Slate 0.15.0 supports **one mounted editor per page**.
+### Show Changes
+
+`showChanges(markdown, { label })` is for readers: it shows, read only and in place of the document, what changed since another version. Unlike Compare it has no buttons and works while the editor is read only:
+
+```javascript
+await editor.showChanges(previousVersion, { label: 'version 2' });       // "Changes since version 2"
+await editor.showChanges(v1, { label: 'version 1', to: v2, toLabel: 'version 2' }); // two other versions
+```
+
+In **Preview** the rendered document is shown with removed words struck through in red and added words in green. A paragraph, heading, list item, quote, table or code block that was edited is drawn once with its changed words marked (and a yellow bar beside it); one that was added or removed outright is marked whole, green or red. Images, videos and diagrams that changed show as removed and added. In **Edit** and **Source** the Markdown is shown the same way, with CodeMirror's merge view. A bar names the versions, counts the changes, steps through them with ↑ and ↓, and has **Hide Changes**. The document is never changed. Switching mode keeps the changes showing; Hide Changes, `hideChanges()` or `compare()` end it, firing `slate:changes-end`. With no `to`, `setMarkdown()` redraws the changes against the new text.
+
+Slate doesn't keep versions, so the host decides what to compare with. `setChangesToggle(handler)` adds a **± Changes** toggle to the toolbar; turning it on calls `handler`, which fetches the version it wants and calls `showChanges()`, and turning it off hides the changes. While the editor is read only the toolbar shows just this toggle, so readers can use it. `setChangesToggle(null)` removes it.
+
+Current Slate 0.17.0 supports **one mounted editor per page**.
 
 ## Events
 
@@ -261,8 +279,17 @@ host.addEventListener('slate:outline-toggle', event => {
 
 ```javascript
 host.addEventListener('slate:compare-end', event => {
-  // reason: 'done' | 'host' | 'replaced' | 'mode' | 'read-only'; differences: how many were left
+  // reason: 'done' | 'host' | 'replaced' | 'mode' | 'read-only' | 'changes'; differences: how many were left
   const { reason, label, differences, markdown } = event.detail;
+});
+```
+
+### Changes hidden
+
+```javascript
+host.addEventListener('slate:changes-end', event => {
+  // reason: 'done' (Hide Changes) | 'host' (hideChanges()) | 'compare'
+  const { reason, label, toLabel } = event.detail;
 });
 ```
 
@@ -376,12 +403,12 @@ This is intentional: host applications mount one component rather than recreatin
 - Host-controlled attachment upload callback.
 - Standalone IndexedDB persistence and attachment storage.
 - Host-controlled nonpersistent Markdown.
-- Light/dark theme support.
+- Light, dark and paper themes.
 - Scoped CSS suitable for direct embedding in an existing page.
 
 ## Limitations
 
-- One Slate editor instance per page in 0.15.0.
+- One Slate editor instance per page in 0.17.0.
 - Edit draws headings written with `#` only; a line of `---` under text shows as a rule, matching Preview.
 - The built-in Markdown parser covers the Markdown used by Slate/Wire but is not a complete CommonMark implementation.
 - Wiki links render but Slate does not provide a note collection/router itself.

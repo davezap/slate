@@ -1,4 +1,5 @@
 import { createSourceEditor } from './source-editor.js';
+import { markWordChanges, planChanges } from './changes.js';
 
 (() => {
   'use strict';
@@ -6,7 +7,7 @@ import { createSourceEditor } from './source-editor.js';
   // Where slate.js was loaded from, to find mermaid/ next to it.
   const SCRIPT_URL = document.currentScript?.src || '';
 
-  const APP_VERSION = '0.15.0';
+  const APP_VERSION = '0.17.0';
   const DB_NAME = 'slate-markdown-editor-db';
   const DB_VERSION = 1;
   const NODE_STORE = 'documents';
@@ -34,7 +35,9 @@ import { createSourceEditor } from './source-editor.js';
           <input id="attachInput" type="file" multiple hidden>
         </div>
 
-        <div class="view-switcher" role="group" aria-label="Editor mode">
+        <button id="changesToggle" class="changes-toggle" type="button" aria-pressed="false" hidden
+          title="Show what changed since another version">± Changes</button>
+        <div id="viewSwitcher" class="view-switcher" role="group" aria-label="Editor mode">
           <button class="view-button active" data-workspace-mode="edit" type="button" title="Edit with Obsidian-style Live Preview">Edit</button>
           <button class="view-button" data-workspace-mode="preview" type="button" title="Preview the rendered document without editing">Preview</button>
           <button class="view-button" data-workspace-mode="source" type="button" title="Edit the complete raw Markdown source">Source</button>
@@ -90,6 +93,23 @@ import { createSourceEditor } from './source-editor.js';
               </span>
             </div>
             <div id="markdownEditor" class="markdown-editor"></div>
+          </div>
+          <div id="changesPane" class="changes-pane" data-form="preview" hidden>
+            <div class="compare-bar changes-bar" role="region" aria-label="Changes">
+              <span class="compare-legend">
+                <strong id="changesTitle" class="changes-title">Changes</strong>
+                <span class="compare-key compare-key-other">Removed</span>
+                <span class="compare-key compare-key-this">Added</span>
+              </span>
+              <span id="changesSummary" class="compare-summary" aria-live="polite"></span>
+              <span class="compare-actions">
+                <button id="changesPrevious" class="compare-button" type="button" title="Previous change" aria-label="Previous change">↑</button>
+                <button id="changesNext" class="compare-button" type="button" title="Next change" aria-label="Next change">↓</button>
+                <button id="changesClose" class="compare-button compare-done" type="button">Hide Changes</button>
+              </span>
+            </div>
+            <article id="changesPreview" class="preview-pane view-only markdown-body changes-preview" aria-label="Changes in the rendered document"></article>
+            <div id="changesSource" class="markdown-editor changes-source"></div>
           </div>
           <div id="dropOverlay" class="drop-overlay" hidden>
             <div>
@@ -153,6 +173,10 @@ import { createSourceEditor } from './source-editor.js';
     diagramsUrl: '',
     outlinePanel: true,
     compare: null,
+    changes: null,
+    changesEditor: null,
+    changesGeneration: 0,
+    changesToggle: null,
     outline: { headings: [], completion: { hasCheckboxes: false, total: 0, checked: 0, unchecked: 0, complete: false } },
   };
 
@@ -301,7 +325,8 @@ import { createSourceEditor } from './source-editor.js';
       'app', 'noteWorkspace', 'formatToolbar', 'formatControls', 'workspaceBody', 'documentOutline', 'outlineToggle',
       'outlineClose', 'outlineNavigation', 'outlineSummary', 'editorGrid', 'editorPane', 'markdownEditor',
       'previewPane', 'dropOverlay', 'saveStatus', 'documentStats', 'attachButton',
-      'attachInput', 'toastRegion', 'compareBar', 'compareLabel', 'compareSummary', 'compareUseAll', 'compareDone'
+      'attachInput', 'toastRegion', 'compareBar', 'compareLabel', 'compareSummary', 'compareUseAll', 'compareDone',
+      'viewSwitcher', 'changesToggle', 'changesPane', 'changesTitle', 'changesSummary', 'changesPrevious', 'changesNext', 'changesClose', 'changesPreview', 'changesSource'
     ];
     ids.forEach(id => { el[id] = mountRoot.querySelector(`#${id}`); });
     el.viewButtons = [...mountRoot.querySelectorAll('.view-button')];
@@ -409,6 +434,11 @@ import { createSourceEditor } from './source-editor.js';
 
     el.compareUseAll.addEventListener('click', useAllOfCompare);
     el.compareDone.addEventListener('click', () => finishCompare('done'));
+    el.changesClose.addEventListener('click', () => hideChanges('done'));
+    el.changesToggle.addEventListener('click', toggleChanges);
+    el.changesPrevious.addEventListener('click', () => goToChange(-1));
+    el.changesNext.addEventListener('click', () => goToChange(1));
+    el.changesPreview.addEventListener('click', handlePreviewClick);
     el.outlineToggle.addEventListener('click', () => applyOutlineVisibility(!state.outlineOpen));
     el.outlineClose.addEventListener('click', () => applyOutlineVisibility(false));
     el.outlineNavigation.addEventListener('click', handleOutlineNavigationClick);
@@ -1685,7 +1715,8 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
   }
 
   function diagramTheme() {
-    return mountHost?.dataset.theme === 'dark' ? 'dark' : 'light';
+    const theme = mountHost?.dataset.theme;
+    return theme === 'dark' || theme === 'paper' ? theme : 'light';
   }
 
   /** Draws the diagrams under `root` that aren't drawn yet (or were drawn for another theme). */
@@ -2505,17 +2536,25 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
       if (currentMode !== 'preview') state.lastWritableWorkspaceMode = currentMode;
       state.readOnly = true;
       el.app.dataset.readOnly = 'true';
-      el.formatToolbar.hidden = true;
+      updateToolbarVisibility();
       await applyWorkspaceMode('preview', { allowReadOnly: true });
     } else {
       state.readOnly = false;
       el.app.dataset.readOnly = 'false';
-      el.formatToolbar.hidden = false;
+      updateToolbarVisibility();
       await applyWorkspaceMode(state.lastWritableWorkspaceMode || 'edit', { allowReadOnly: true });
     }
 
     updateWorkspaceModeControls();
     return getWorkspaceMode();
+  }
+
+  // Read only hides the toolbar, except for the Changes toggle when the host offers one.
+  function updateToolbarVisibility() {
+    const toggle = Boolean(state.changesToggle);
+    el.changesToggle.hidden = !toggle;
+    el.viewSwitcher.hidden = state.readOnly;
+    el.formatToolbar.hidden = state.readOnly && !toggle;
   }
 
   function applyView(view, options = {}) {
@@ -2567,6 +2606,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
       if (topLine !== null) el.markdownEditor.scrollToLine(topLine);
     }
     updateWorkspaceModeControls();
+    if (state.changes) await renderChanges();
   }
 
   // The preview pane is read only (Preview mode); with interactiveTasks its boxes still tick.
@@ -2626,7 +2666,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
 
 
   function applyStoredTheme(requestedTheme = 'auto') {
-    const theme = requestedTheme === 'dark' || requestedTheme === 'light'
+    const theme = requestedTheme === 'dark' || requestedTheme === 'light' || requestedTheme === 'paper'
       ? requestedTheme
       : (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
     mountHost.dataset.theme = theme;
@@ -2664,7 +2704,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
 
 
   function applyFormatting(kind) {
-    if (state.editorMode !== 'edit') return;
+    if (state.editorMode !== 'edit' || state.changes) return;
 
     if (!selectedNote()) return;
     if (kind === 'video' || kind === 'video-task') {
@@ -2837,7 +2877,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
   }
 
   async function insertFiles(files, source = 'picker') {
-    if (state.editorMode !== 'edit' || state.attachmentBusy) return;
+    if (state.editorMode !== 'edit' || state.attachmentBusy || state.changes) return;
     files = [...(files || [])].filter(file => file instanceof File);
     if (files.length === 0) return;
 
@@ -3019,6 +3059,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     const other = ensureTrailingBlankLine(String(markdown ?? '').replace(/\r\n?/g, '\n'));
     const label = String(options.label || 'Other version').trim() || 'Other version';
     if (state.compare) finishCompare('restart', { notify: false });
+    if (state.changes) hideChanges('compare');
     const previousMode = getWorkspaceMode();
     if (previousMode !== 'source') await applyWorkspaceMode('source', { keepCompare: true });
     state.compare = { label, previousMode, other };
@@ -3095,6 +3136,155 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     return snapshot;
   }
 
+  // Show Changes is for reading: how the document differs from another version (or one version
+  // from another), drawn read only in place of the document. Preview draws it rendered, word by
+  // word (changes.js); Edit and Source show the Markdown, with the merge view used by Compare.
+  async function showChanges(markdown, options = {}) {
+    if (state.compare) finishCompare('changes');
+    const normalise = text => ensureTrailingBlankLine(String(text ?? '').replace(/\r\n?/g, '\n'));
+    const label = String(options.label || '').trim() || 'the other version';
+    const toLabel = String(options.toLabel || '').trim();
+    state.changes = {
+      from: normalise(markdown),
+      to: options.to === undefined || options.to === null ? null : normalise(options.to),
+      label,
+      toLabel,
+      count: 0,
+    };
+    updateChangesToggle();
+    el.changesTitle.textContent = toLabel ? `Changes from ${label} to ${toLabel}` : `Changes since ${label}`;
+    el.app.dataset.showingChanges = 'true';
+    el.changesPane.hidden = false;
+    await renderChanges();
+    el.changesPreview.scrollTop = 0;
+    return changesSnapshot();
+  }
+
+  async function renderChanges() {
+    const changes = state.changes;
+    if (!changes) return;
+    const generation = ++state.changesGeneration;
+    const to = changes.to ?? ensureTrailingBlankLine(selectedNote()?.content || '');
+    const form = state.editorMode === 'view' ? 'preview' : 'source';
+    el.changesPane.dataset.form = form;
+    let count;
+    if (form === 'preview') {
+      count = await renderChangesPreview(changes.from, to, generation);
+      if (generation !== state.changesGeneration) return;
+    } else {
+      if (!state.changesEditor) {
+        state.changesEditor = createSourceEditor(el.changesSource, { ariaLabel: 'Changes in the Markdown source' });
+        state.changesEditor.readOnly = true;
+      }
+      const editor = state.changesEditor;
+      editor.endCompare();
+      editor.replaceDocument(to);
+      editor.startCompare(changes.from, { control: false });
+      count = editor.differences;
+    }
+    changes.count = count;
+    el.changesSummary.textContent = count === 0 ? 'No changes' : `${count} ${count === 1 ? 'change' : 'changes'}`;
+    el.changesPrevious.disabled = count === 0;
+    el.changesNext.disabled = count === 0;
+  }
+
+  /** Draws the change from `from` to `to` in the changes pane; returns how many changes there are. */
+  async function renderChangesPreview(from, to, generation) {
+    const pane = el.changesPreview;
+    destroyMediaPlayers(pane);
+    const plan = planChanges(splitMarkdownIntoLiveBlocks(from), splitMarkdownIntoLiveBlocks(to));
+    const fragment = document.createDocumentFragment();
+    plan.items.forEach(item => {
+      let block;
+      if (item.type === 'changed') {
+        block = createLiveBlock(item.to);
+        markWordChanges(block, createLiveBlock(item.from));
+        block.classList.add('slate-diff-changed');
+      } else {
+        block = createLiveBlock(item.source);
+        if (item.type !== 'same') block.classList.add(`slate-diff-${item.type}`);
+      }
+      if (item.first) block.classList.add('slate-diff-first');
+      fragment.appendChild(block);
+    });
+    pane.replaceChildren(fragment);
+    hydrateDiagrams(pane);
+    await hydrateAttachments(pane);
+    if (generation !== state.changesGeneration) return plan.changes;
+    hydrateWikiLinks(pane);
+    // Read only: boxes don't tick and videos don't count as watched here.
+    pane.querySelectorAll('.task-checkbox').forEach(checkbox => { checkbox.disabled = true; });
+    pane.querySelectorAll('.media-source-toggle').forEach(button => { button.hidden = true; });
+    return plan.changes;
+  }
+
+  /** Scrolls to the next (1) or previous (-1) change. */
+  function goToChange(direction) {
+    if (!state.changes) return;
+    if (el.changesPane.dataset.form === 'source') {
+      state.changesEditor?.goToChange(direction);
+      return;
+    }
+    const pane = el.changesPreview;
+    const top = pane.getBoundingClientRect().top + 24;
+    const marks = [...pane.querySelectorAll('.slate-diff-first')];
+    const target = direction > 0
+      ? marks.find(mark => mark.getBoundingClientRect().top > top + 8)
+      : marks.findLast(mark => mark.getBoundingClientRect().top < top - 8);
+    if (!target) return;
+    pane.scrollTo({ top: Math.max(0, pane.scrollTop + target.getBoundingClientRect().top - top) });
+    target.classList.remove('outline-target');
+    requestAnimationFrame(() => target.classList.add('outline-target'));
+    setTimeout(() => target.classList.remove('outline-target'), 1400);
+  }
+
+  // The toolbar's Changes button: the host decides what to compare with (setChangesToggle).
+  async function toggleChanges() {
+    if (state.changes) {
+      hideChanges('done');
+      return;
+    }
+    if (!state.changesToggle) return;
+    el.changesToggle.disabled = true;
+    try {
+      await state.changesToggle();
+    } catch (error) {
+      console.error('Slate changes toggle failed:', error);
+    } finally {
+      el.changesToggle.disabled = false;
+    }
+  }
+
+  function updateChangesToggle() {
+    const on = Boolean(state.changes);
+    el.changesToggle.classList.toggle('active', on);
+    el.changesToggle.setAttribute('aria-pressed', String(on));
+  }
+
+  function changesSnapshot() {
+    if (!state.changes) return { showing: false, label: '', toLabel: '', changes: 0 };
+    const { label, toLabel, count } = state.changes;
+    return { showing: true, label, toLabel, changes: count };
+  }
+
+  // Goes back to the document. Returns what was shown.
+  function hideChanges(reason = 'done', options = {}) {
+    if (!state.changes) return changesSnapshot();
+    const snapshot = changesSnapshot();
+    state.changes = null;
+    state.changesGeneration += 1;
+    el.changesPane.hidden = true;
+    delete el.app.dataset.showingChanges;
+    destroyMediaPlayers(el.changesPreview);
+    el.changesPreview.replaceChildren();
+    state.changesEditor?.endCompare();
+    updateChangesToggle();
+    if (options.notify !== false) {
+      dispatchEditorEvent('slate:changes-end', { reason, label: snapshot.label, toLabel: snapshot.toLabel });
+    }
+    return snapshot;
+  }
+
   function dispatchEditorEvent(name, detail) {
     if (!mountHost) return;
     mountHost.dispatchEvent(new CustomEvent(name, {
@@ -3126,6 +3316,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
         scheduleSave(note);
         updateDocumentStats();
         if (state.editorMode === 'view') await renderPreview();
+        if (state.changes && state.changes.to === null) await renderChanges();
         dispatchDocumentChange();
       },
       getWorkspaceMode() {
@@ -3207,6 +3398,25 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
       getCompareState() {
         return compareSnapshot();
       },
+      showChanges(markdown, options = {}) {
+        return showChanges(markdown, options);
+      },
+      hideChanges() {
+        return hideChanges('host');
+      },
+      isShowingChanges() {
+        return Boolean(state.changes);
+      },
+      getChangesState() {
+        return changesSnapshot();
+      },
+      setChangesToggle(handler) {
+        if (handler !== null && handler !== undefined && typeof handler !== 'function') {
+          throw new TypeError('setChangesToggle requires a function or null.');
+        }
+        state.changesToggle = handler || null;
+        updateToolbarVisibility();
+      },
       focus() {
         if (state.editorMode === 'edit') el.markdownEditor.focus();
       }
@@ -3215,7 +3425,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     const methodNames = [
       'getMarkdown', 'setMarkdown', 'getWorkspaceMode', 'setWorkspaceMode', 'setReadOnly',
       'isOutlineOpen', 'setOutlineOpen', 'getOutline', 'revealLine', 'getTopLine', 'compare', 'endCompare',
-      'isComparing', 'getCompareState', 'selectSourceRange', 'getSourceSelection', 'restoreView', 'setSourceHighlights', 'isDocumentComplete', 'getCompletionState',
+      'isComparing', 'getCompareState', 'showChanges', 'hideChanges', 'isShowingChanges', 'getChangesState', 'setChangesToggle', 'selectSourceRange', 'getSourceSelection', 'restoreView', 'setSourceHighlights', 'isDocumentComplete', 'getCompletionState',
       'onDocumentComplete', 'focus'
     ];
     methodNames.forEach(name => {

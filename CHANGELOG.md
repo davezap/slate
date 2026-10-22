@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.17.0 — 2026-10-22
+
+- Added **Show Changes**, for reading what changed since another version: `showChanges(markdown, { label, to?, toLabel? })`, `hideChanges()`, `isShowingChanges()`, `getChangesState()` and the `slate:changes-end` event. It shows the changes read only, in place of the document, and works while the editor is read only.
+- In Preview the document is drawn rendered, with removed words struck through in red and added words in green. Edited paragraphs, headings, list items, quotes, tables and code blocks are drawn once with the changed words marked; blocks added or removed outright are marked whole. In Edit and Source the Markdown is shown the same way in the merge view.
+- The bar over it names the versions ("Changes since version 2", or "Changes from version 1 to version 2" with `to`), counts the changes, steps through them with ↑ and ↓, and has Hide Changes.
+- `setChangesToggle(handler)` adds a **± Changes** toggle to the toolbar for hosts that keep versions: on calls the host, which picks the version and calls `showChanges()`; off hides the changes. The toolbar stays visible while read only when there is one, showing only the toggle.
+- Compare and Show Changes find each change in long documents with many changes; before, past CodeMirror's default limit, they could show the whole middle of the document as one change.
+
+## 0.16.0 — 2026-10-20
+
+- Added a **paper** theme: a soft, warm page (not white) with near-black text and ink-blue links, for strong contrast without glare. Hosts set `data-theme="paper"` on the host, or mount with `theme: 'paper'`. It's only a set of colour variables in `slate.css`, like light and dark.
+- Diagrams in the paper theme are drawn with Mermaid's `base` theme coloured to match the page.
+
 ## 0.15.0 — 2026-10-19
 
 - Edit: a plain click on a link in a table (or in a block's caption) no longer opens the link; it places the cursor in that cell to edit it, like links in the text. Ctrl+click opens it. Before, the editor ignored clicks inside blocks, so the browser followed the link into a new window.

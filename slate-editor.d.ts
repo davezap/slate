@@ -41,7 +41,7 @@ export interface SlateMountOptions {
   outlineOpen?: boolean;
   readOnly?: boolean;
   interactiveTasks?: boolean;
-  theme?: "auto" | "light" | "dark";
+  theme?: "auto" | "light" | "dark" | "paper";
   showReadyToast?: boolean;
   attachmentHandler?: SlateAttachmentHandler | null;
   resolveUrl?: SlateUrlResolver | null;
@@ -75,11 +75,35 @@ export interface SlateCompareState {
 }
 
 export interface SlateCompareEndDetail {
-  /** 'done' (the Done button), 'host' (endCompare()), 'replaced' (setMarkdown()), 'mode' or 'read-only'. */
-  reason: 'done' | 'host' | 'replaced' | 'mode' | 'read-only';
+  /** 'done' (the Done button), 'host' (endCompare()), 'replaced' (setMarkdown()), 'mode', 'read-only' or 'changes' (showChanges()). */
+  reason: 'done' | 'host' | 'replaced' | 'mode' | 'read-only' | 'changes';
   label: string;
   differences: number;
   markdown: string;
+}
+
+export interface SlateChangesOptions {
+  /** The version changes are shown from, as in "Changes since {label}". Default "the other version". */
+  label?: string;
+  /** Show the changes up to this text instead of up to the document (which stays as it is). */
+  to?: string | null;
+  /** With `to`: its name, as in "Changes from {label} to {toLabel}". */
+  toLabel?: string;
+}
+
+export interface SlateChangesState {
+  showing: boolean;
+  label: string;
+  toLabel: string;
+  /** How many separate changes there are (blocks changed together count once). */
+  changes: number;
+}
+
+export interface SlateChangesEndDetail {
+  /** 'done' (the Hide Changes button), 'host' (hideChanges()) or 'compare' (compare() replaced it). */
+  reason: 'done' | 'host' | 'compare';
+  label: string;
+  toLabel: string;
 }
 
 export interface SlateEditorApi {
@@ -125,6 +149,25 @@ export interface SlateEditorApi {
   endCompare(): SlateCompareState;
   isComparing(): boolean;
   getCompareState(): SlateCompareState;
+  /**
+   * Shows, read only and in place of the document, how it differs from `markdown` (an earlier
+   * version), or with `to`, how `to` differs from `markdown`. Preview draws the rendered text with
+   * removed words struck through in red and added words in green; Edit and Source show the
+   * Markdown the same way. Works while read only, and follows mode changes. Ends on Hide Changes,
+   * hideChanges() or compare(), firing `slate:changes-end`. setMarkdown() redraws it when it
+   * shows changes up to the document.
+   */
+  showChanges(markdown: string, options?: SlateChangesOptions): Promise<SlateChangesState>;
+  /** Goes back to the document; returns what was shown. */
+  hideChanges(): SlateChangesState;
+  isShowingChanges(): boolean;
+  getChangesState(): SlateChangesState;
+  /**
+   * Shows a "± Changes" toggle in the toolbar (also while read only, alone): turning it on calls
+   * `handler`, which shows the changes it chooses with showChanges(); turning it off hides them.
+   * Pass null to remove it.
+   */
+  setChangesToggle(handler: (() => unknown | Promise<unknown>) | null): void;
   isDocumentComplete(): boolean;
   getCompletionState(): SlateCompletionState;
   onDocumentComplete(

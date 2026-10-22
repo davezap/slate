@@ -36,6 +36,31 @@ function captureStyles(onCss) {
   return () => { document.createElement = create; };
 }
 
+// Paper (slate.css) has no Mermaid theme of its own: 'base' coloured to match the page.
+const PAPER = {
+  background: '#e2dccf',
+  primaryColor: '#d8ceb9',
+  primaryTextColor: '#16130f',
+  primaryBorderColor: '#3a342b',
+  nodeBorder: '#3a342b',
+  clusterBkg: '#dad4c5',
+  clusterBorder: '#8a7f6c',
+  edgeLabelBackground: '#e2dccf',
+  secondaryColor: '#d7dae0',
+  tertiaryColor: '#e4dac5',
+  lineColor: '#3a342b',
+  textColor: '#16130f',
+  noteBkgColor: '#e4d7ad',
+  noteTextColor: '#16130f',
+  noteBorderColor: '#b39b5e',
+};
+
+function themeOptions(name) {
+  if (name === 'dark') return { theme: 'dark' };
+  if (name === 'paper') return { theme: 'base', themeVariables: PAPER };
+  return { theme: 'default' };
+}
+
 function render(source, nextTheme) {
   const run = async () => {
     if (nextTheme !== theme) {
@@ -45,7 +70,7 @@ function render(source, nextTheme) {
         securityLevel: 'strict',
         // ...nor bring its own CSS through a %%{init}%% directive.
         secure: ['secure', 'securityLevel', 'startOnLoad', 'maxTextSize', 'suppressErrorRendering', 'maxEdges', 'themeCSS'],
-        theme: nextTheme === 'dark' ? 'dark' : 'default',
+        ...themeOptions(nextTheme),
         fontFamily: 'Inter, "Segoe UI", system-ui, sans-serif',
       });
       theme = nextTheme;
