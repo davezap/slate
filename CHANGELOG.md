@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.19.0 — 2026-10-23
+
+- Preview hides front matter (the `---` block at the top of a document), as it hides comments. Edit and Source still show it, and it stays out of the outline.
+- `startFill({ inPreview: true })` makes the form the document's Preview: Slate switches to Preview, keeps the Edit / Preview / Source switch and has no Stop Filling In. Leaving Preview ends it with reason `'mode'`. The new `slate:mode-change` event (`{ mode, previous }`) tells the host when to start it again.
+- `startFill({ readOnly: true })` shows the fields greyed out with no Send, for a page that can't send the form.
+- Calling `startFill()` while filling in replaces the form without firing `slate:fill-end`.
+
 ## 0.18.0 — 2026-10-23
 
 - Added **forms**: fill mode for form templates (Metatrash 0.49.0). A template's front matter has `form`, `title` and `submitTo`; its fields are `{{type name=… …}}` tokens: `text`, `textarea`, `number`, `date`, `time`, `email`, `phone`, `choice` (one, or several with `multi`), `select`, `yesno` and `sign`, with `required`, lengths, patterns, ranges, and a choice's options from the list below it. `src/forms.js` parses them as Metatrash does.

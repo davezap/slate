@@ -608,6 +608,7 @@
 .slate-editor-host .live-block > blockquote, .slate-editor-host .live-block > pre, .slate-editor-host .live-block > table{ margin-top: .55em; margin-bottom: .55em; }
 .slate-editor-host .live-block.is-empty{ min-height: 1.15em; }
 .slate-editor-host .live-block.is-comment{ display: none; }
+.slate-editor-host .live-block.is-front-matter{ display: none; }
 
 .slate-editor-host .live-block.is-active:not(.is-image-block):not(.is-video-block){
   min-height: 1.7em;
@@ -1143,7 +1144,7 @@
 .slate-editor-host .editor-app[data-filling="true"] .editor-grid > .editor-pane,
 .slate-editor-host .editor-app[data-filling="true"] .editor-grid > .changes-pane,
 .slate-editor-host .editor-app[data-filling="true"] .format-controls,
-.slate-editor-host .editor-app[data-filling="true"] .view-switcher,
+.slate-editor-host .editor-app[data-filling="true"]:not([data-fill-in-preview="true"]) .view-switcher,
 .slate-editor-host .editor-app[data-filling="true"] .changes-toggle{ display: none !important; }
 .slate-editor-host .fill-pane{ display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .slate-editor-host .fill-pane[hidden]{ display: none; }
@@ -1175,6 +1176,9 @@
 .slate-editor-host .form-field.has-error .form-sign{ border-color: var(--danger); }
 .slate-editor-host .form-error{ color: var(--danger); font: 12px/1.35 var(--font-ui); }
 .slate-editor-host .form-error[hidden]{ display: none; }
+.slate-editor-host .form-read-only .form-control,
+.slate-editor-host .form-read-only .form-option,
+.slate-editor-host .form-read-only .form-sign{ opacity: .6; cursor: default; }
 .slate-editor-host .form-hint{
   color: var(--text-muted);
   font-style: italic;

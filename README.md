@@ -252,6 +252,10 @@ host.addEventListener('slate:form-submit', async e => {   // Send passed Slate's
 
 Fill mode draws the form as Preview does, in place of the document, with a real input for each field (radio buttons or check boxes under a choice, a drop-down for select, a box to tick for a signature) and the template's `<!-- comments -->` shown as hints: they are notes for the person filling it in, hidden everywhere else in Preview. Tokens in code stay text. **Send** checks every answer (required, lengths, patterns, number and date ranges, options) and shows each problem under its field; when they pass it fires `slate:form-submit`, and the host sends the answers. The document itself is never changed. `getForm()` returns the template's fields (or its first mistake), `getFormAnswers()` / `setFormAnswers()` read and set answers, `checkForm()` runs the checks, and **Stop Filling In** or `endFill()` go back to the document, firing `slate:fill-end` with the answers.
 
+To make the form the document's Preview, as Slate Viewer does, pass `inPreview: true`: Slate switches to Preview, keeps the Edit / Preview / Source switch and has no Stop Filling In. Leaving Preview ends fill mode (reason `'mode'`); start it again when `slate:mode-change` reports Preview. `readOnly: true` shows the fields greyed out with no Send, for a page that can't send the form, such as metatrash.com.
+
+Preview hides a document's front matter (the `---` block at the top), as it hides comments; Edit and Source show it.
+
 Current Slate 0.18.0 supports **one mounted editor per page**.
 
 ## Events

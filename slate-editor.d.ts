@@ -149,10 +149,25 @@ export interface SlateFillOptions {
   submit?: boolean;
   /** A message for the bar, such as "Draft from yesterday". */
   status?: string;
+  /**
+   * The form is the document's Preview: Slate switches to Preview if needed, keeps the Edit /
+   * Preview / Source switch and has no Stop Filling In. Leaving Preview ends it with reason
+   * 'mode'; the host starts it again on `slate:mode-change` back to Preview. (0.19.0)
+   */
+  inPreview?: boolean;
+  /** The fields show greyed out and can't be changed, and there is no Send: for a page that can't send it. (0.19.0) */
+  readOnly?: boolean;
+}
+
+export interface SlateModeChangeDetail {
+  mode: SlateWorkspaceMode;
+  previous: SlateWorkspaceMode;
 }
 
 export interface SlateFillState {
   filling: boolean;
+  inPreview?: boolean;
+  readOnly?: boolean;
   form: SlateForm | null;
   answers: SlateFormAnswers;
 }
@@ -164,8 +179,8 @@ export interface SlateFormSubmitDetail {
 }
 
 export interface SlateFillEndDetail {
-  /** 'done' (Stop Filling In), 'host' (endFill()), 'replaced' (setMarkdown() with a text that is no form), 'compare' or 'changes'. */
-  reason: 'done' | 'host' | 'replaced' | 'compare' | 'changes';
+  /** 'done' (Stop Filling In), 'host' (endFill()), 'replaced' (setMarkdown() with a text that is no form), 'compare', 'changes' or 'mode' (left Preview, with inPreview). */
+  reason: 'done' | 'host' | 'replaced' | 'compare' | 'changes' | 'mode';
   form: string;
   /** The answers when it ended, for keeping as a draft. */
   answers: SlateFormAnswers;
@@ -242,7 +257,8 @@ export interface SlateEditorApi {
    * as hints, in place of the document (which stays as it is). Send checks every answer and fires
    * `slate:form-submit` when they pass; the host sends them. Rejects when the document is not a
    * form or the template has a mistake. setMarkdown() redraws it, keeping the answers. Ends on
-   * Stop Filling In, endFill(), compare() or showChanges(), firing `slate:fill-end`.
+   * Stop Filling In, endFill(), compare() or showChanges(), firing `slate:fill-end`; with
+   * `inPreview`, also on leaving Preview. Starting it again while filling replaces it silently.
    */
   startFill(options?: SlateFillOptions): Promise<SlateFillState>;
   /** Back to the document; returns the answers. */

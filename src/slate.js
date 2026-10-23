@@ -8,7 +8,7 @@ import { checkAnswers, isFormTemplate, localToday, parseForm, fillMarkdown } fro
   // Where slate.js was loaded from, to find mermaid/ next to it.
   const SCRIPT_URL = document.currentScript?.src || '';
 
-  const APP_VERSION = '0.18.0';
+  const APP_VERSION = '0.19.0';
   const DB_NAME = 'slate-markdown-editor-db';
   const DB_VERSION = 1;
   const NODE_STORE = 'documents';
@@ -707,6 +707,17 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
         continue;
       }
 
+      // Front matter (--- … --- at the very start) is one block, hidden in Preview (see isFrontMatterBlock).
+      if (index === 0 && line.trimEnd() === '---') {
+        let end = 1;
+        while (end < lines.length && lines[end].trimEnd() !== '---' && lines[end].trimEnd() !== '...') end += 1;
+        if (end < lines.length) {
+          blocks.push(lines.slice(0, end + 1).join('\n'));
+          index = end + 1;
+          continue;
+        }
+      }
+
       // An HTML comment over several lines is one block, hidden in Preview (see isCommentBlock).
       if (/^\s*<!--/.test(line) && !/^\s*<!--[\s\S]*?-->/.test(line)) {
         const comment = [line];
@@ -765,6 +776,12 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
       return;
     }
 
+    if (isFrontMatterBlock(source)) {
+      block.classList.add('is-front-matter');
+      block.dataset.liveMode = 'front-matter';
+      return;
+    }
+
     if (isCommentBlock(source)) {
       block.classList.add('is-comment');
       block.dataset.liveMode = 'comment';
@@ -781,6 +798,13 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
   // instructions: Preview hides them, as GitHub and Obsidian do; Edit and Source show them.
   function isCommentBlock(source) {
     return /^\s*<!--/.test(source) && !stripComments(source).trim();
+  }
+
+  // Front matter holds settings for tools (a form's title, a policy's version), not reading:
+  // Preview hides it like a comment. Only the splitter makes a block of several lines that
+  // starts with ---, and only at the top of the document.
+  function isFrontMatterBlock(source) {
+    return /^---[ \t]*\n[\s\S]*\n(?:---|\.\.\.)[ \t]*$/.test(source);
   }
 
   /** The text without its HTML comments (an unclosed one runs to the end). */
@@ -2253,8 +2277,14 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     let inComment = false;
     let total = 0;
     let checked = 0;
+    // Front matter is settings, not headings or tasks (Preview hides it).
+    let frontMatterEnd = -1;
+    if (lines[0]?.trimEnd() === '---') {
+      frontMatterEnd = lines.findIndex((line, i) => i > 0 && (line.trimEnd() === '---' || line.trimEnd() === '...'));
+    }
 
     lines.forEach((line, lineIndex) => {
+      if (lineIndex <= frontMatterEnd) return;
       if (inComment) {
         if (line.includes('-->')) inComment = false;
         return;
@@ -2583,7 +2613,17 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
   }
 
   async function applyWorkspaceMode(mode, options = {}) {
+    const before = getWorkspaceMode();
+    const result = await applyWorkspaceModeNow(mode, options);
+    const after = getWorkspaceMode();
+    if (after !== before) dispatchEditorEvent('slate:mode-change', { mode: after, previous: before });
+    return result;
+  }
+
+  async function applyWorkspaceModeNow(mode, options = {}) {
     mode = normaliseWorkspaceMode(mode);
+    // A form filled in as its Preview stays in Preview; the host starts it again there.
+    if (state.fill?.inPreview && mode !== 'preview' && !(state.readOnly && !options.allowReadOnly)) endFill('mode');
     if (state.compare && !options.keepCompare) finishCompare('mode');
     if (state.readOnly && mode !== 'preview' && !options.allowReadOnly) return getWorkspaceMode();
     if (mode === 'preview') {
@@ -3371,14 +3411,21 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     if (form.error) throw new Error(form.error);
     if (state.compare) finishCompare('fill');
     if (state.changes) hideChanges('fill');
-    state.fill = { form, answers: {}, problems: new Map(), generation: 0, uid: uuid().slice(0, 8), busy: false };
+    const inPreview = Boolean(options.inPreview);
+    const readOnly = Boolean(options.readOnly);
+    if (inPreview && getWorkspaceMode() !== 'preview') await applyWorkspaceModeNow('preview', { allowReadOnly: true });
+    if (state.fill) endFill('restart', { notify: false });
+    state.fill = { form, answers: {}, problems: new Map(), generation: 0, uid: uuid().slice(0, 8), busy: false, inPreview, readOnly };
     setFillAnswers(options.answers);
-    el.fillTitle.textContent = `Filling in: ${form.title}`;
+    el.fillTitle.textContent = fillTitle(state.fill);
     el.fillSubmit.textContent = String(options.submitLabel || 'Send');
-    el.fillSubmit.hidden = options.submit === false;
+    el.fillSubmit.hidden = readOnly || options.submit === false;
     el.fillSubmit.disabled = false;
+    el.fillClose.hidden = inPreview;
     setFillStatus(options.status || '');
     el.app.dataset.filling = 'true';
+    if (inPreview) el.app.dataset.fillInPreview = 'true';
+    else delete el.app.dataset.fillInPreview;
     el.fillPane.hidden = false;
     await renderFill();
     el.fillForm.scrollTop = 0;
@@ -3409,8 +3456,12 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     const answers = fill.answers;
     fill.form = form;
     setFillAnswers(answers);
-    el.fillTitle.textContent = `Filling in: ${form.title}`;
+    el.fillTitle.textContent = fillTitle(fill);
     await renderFill();
+  }
+
+  function fillTitle(fill) {
+    return fill.readOnly || fill.inPreview ? fill.form.title : `Filling in: ${fill.form.title}`;
   }
 
   async function renderFill() {
@@ -3431,6 +3482,9 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     // The document's own task boxes and videos are not answers.
     pane.querySelectorAll('.task-checkbox').forEach(checkbox => { checkbox.disabled = true; });
     pane.querySelectorAll('.media-source-toggle').forEach(button => { button.hidden = true; });
+    // Read only (a page that can't send it): the fields show, greyed out.
+    pane.classList.toggle('form-read-only', fill.readOnly);
+    if (fill.readOnly) pane.querySelectorAll('.form-field input, .form-field textarea, .form-field select').forEach(control => { control.disabled = true; });
     showFillProblems();
   }
 
@@ -3573,7 +3627,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
   function handleFillInput(event) {
     const fill = state.fill;
     const wrap = event.target.closest('.form-field');
-    if (!fill || !wrap) return;
+    if (!fill || !wrap || fill.readOnly) return;
     const field = fill.form.fields.find(f => f.name === wrap.dataset.field);
     if (!field) return;
     const value = readFieldValue(wrap, field);
@@ -3647,7 +3701,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
   // Send: checks the answers here first, then hands them to the host.
   function submitFill() {
     const fill = state.fill;
-    if (!fill || fill.busy) return;
+    if (!fill || fill.busy || fill.readOnly) return;
     const problems = checkFill();
     if (problems.length) {
       setFillStatus(problems.length === 1 ? '1 answer needs fixing.' : `${problems.length} answers need fixing.`, { kind: 'error' });
@@ -3670,7 +3724,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
 
   function fillSnapshot() {
     if (!state.fill) return { filling: false, form: null, answers: {} };
-    return { filling: true, form: publicForm(state.fill.form), answers: fillAnswers() };
+    return { filling: true, inPreview: state.fill.inPreview, readOnly: state.fill.readOnly, form: publicForm(state.fill.form), answers: fillAnswers() };
   }
 
   // Back to the document. Returns the answers, which the host may keep as a draft.
@@ -3680,7 +3734,9 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     const form = state.fill.form.form;
     state.fill = null;
     el.fillPane.hidden = true;
+    el.fillClose.hidden = false;
     delete el.app.dataset.filling;
+    delete el.app.dataset.fillInPreview;
     destroyMediaPlayers(el.fillForm);
     el.fillForm.replaceChildren();
     if (options.notify !== false) dispatchEditorEvent('slate:fill-end', { reason, form, answers });
