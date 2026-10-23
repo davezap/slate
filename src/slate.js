@@ -1,5 +1,6 @@
 import { createSourceEditor } from './source-editor.js';
 import { markWordChanges, planChanges } from './changes.js';
+import { checkAnswers, isFormTemplate, localToday, parseForm, fillMarkdown } from './forms.js';
 
 (() => {
   'use strict';
@@ -7,7 +8,7 @@ import { markWordChanges, planChanges } from './changes.js';
   // Where slate.js was loaded from, to find mermaid/ next to it.
   const SCRIPT_URL = document.currentScript?.src || '';
 
-  const APP_VERSION = '0.17.0';
+  const APP_VERSION = '0.18.0';
   const DB_NAME = 'slate-markdown-editor-db';
   const DB_VERSION = 1;
   const NODE_STORE = 'documents';
@@ -111,6 +112,17 @@ import { markWordChanges, planChanges } from './changes.js';
             <article id="changesPreview" class="preview-pane view-only markdown-body changes-preview" aria-label="Changes in the rendered document"></article>
             <div id="changesSource" class="markdown-editor changes-source"></div>
           </div>
+          <div id="fillPane" class="fill-pane" hidden>
+            <div class="compare-bar fill-bar" role="region" aria-label="Filling in a form">
+              <span class="compare-legend"><strong id="fillTitle" class="changes-title">Filling in</strong></span>
+              <span id="fillStatus" class="compare-summary fill-status" aria-live="polite"></span>
+              <span class="compare-actions">
+                <button id="fillSubmit" class="compare-button compare-done" type="button">Send</button>
+                <button id="fillClose" class="compare-button" type="button">Stop Filling In</button>
+              </span>
+            </div>
+            <article id="fillForm" class="preview-pane view-only markdown-body fill-form" aria-label="Form to fill in"></article>
+          </div>
           <div id="dropOverlay" class="drop-overlay" hidden>
             <div>
               <span class="drop-icon">⇩</span>
@@ -177,6 +189,7 @@ import { markWordChanges, planChanges } from './changes.js';
     changesEditor: null,
     changesGeneration: 0,
     changesToggle: null,
+    fill: null,
     outline: { headings: [], completion: { hasCheckboxes: false, total: 0, checked: 0, unchecked: 0, complete: false } },
   };
 
@@ -326,7 +339,8 @@ import { markWordChanges, planChanges } from './changes.js';
       'outlineClose', 'outlineNavigation', 'outlineSummary', 'editorGrid', 'editorPane', 'markdownEditor',
       'previewPane', 'dropOverlay', 'saveStatus', 'documentStats', 'attachButton',
       'attachInput', 'toastRegion', 'compareBar', 'compareLabel', 'compareSummary', 'compareUseAll', 'compareDone',
-      'viewSwitcher', 'changesToggle', 'changesPane', 'changesTitle', 'changesSummary', 'changesPrevious', 'changesNext', 'changesClose', 'changesPreview', 'changesSource'
+      'viewSwitcher', 'changesToggle', 'changesPane', 'changesTitle', 'changesSummary', 'changesPrevious', 'changesNext', 'changesClose', 'changesPreview', 'changesSource',
+      'fillPane', 'fillTitle', 'fillStatus', 'fillSubmit', 'fillClose', 'fillForm'
     ];
     ids.forEach(id => { el[id] = mountRoot.querySelector(`#${id}`); });
     el.viewButtons = [...mountRoot.querySelectorAll('.view-button')];
@@ -439,6 +453,11 @@ import { markWordChanges, planChanges } from './changes.js';
     el.changesPrevious.addEventListener('click', () => goToChange(-1));
     el.changesNext.addEventListener('click', () => goToChange(1));
     el.changesPreview.addEventListener('click', handlePreviewClick);
+    el.fillForm.addEventListener('click', handlePreviewClick);
+    el.fillForm.addEventListener('input', handleFillInput);
+    el.fillForm.addEventListener('change', handleFillInput);
+    el.fillSubmit.addEventListener('click', submitFill);
+    el.fillClose.addEventListener('click', () => endFill('done'));
     el.outlineToggle.addEventListener('click', () => applyOutlineVisibility(!state.outlineOpen));
     el.outlineClose.addEventListener('click', () => applyOutlineVisibility(false));
     el.outlineNavigation.addEventListener('click', handleOutlineNavigationClick);
@@ -688,6 +707,20 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
         continue;
       }
 
+      // An HTML comment over several lines is one block, hidden in Preview (see isCommentBlock).
+      if (/^\s*<!--/.test(line) && !/^\s*<!--[\s\S]*?-->/.test(line)) {
+        const comment = [line];
+        index += 1;
+        while (index < lines.length) {
+          comment.push(lines[index]);
+          const closes = lines[index].includes('-->');
+          index += 1;
+          if (closes) break;
+        }
+        blocks.push(comment.join('\n'));
+        continue;
+      }
+
       if (isTableStart(lines, index)) {
         const table = [lines[index], lines[index + 1]];
         index += 2;
@@ -732,10 +765,27 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
       return;
     }
 
+    if (isCommentBlock(source)) {
+      block.classList.add('is-comment');
+      block.dataset.liveMode = 'comment';
+      return;
+    }
+
     if (renderSourcePreservingBlock(block, source)) return;
 
     block.dataset.liveMode = 'raw';
     block.innerHTML = renderMarkdown(source);
+  }
+
+  // HTML comments (<!-- … -->) are notes for whoever edits the file, such as a template's
+  // instructions: Preview hides them, as GitHub and Obsidian do; Edit and Source show them.
+  function isCommentBlock(source) {
+    return /^\s*<!--/.test(source) && !stripComments(source).trim();
+  }
+
+  /** The text without its HTML comments (an unclosed one runs to the end). */
+  function stripComments(text) {
+    return String(text).replace(/<!--[\s\S]*?(?:-->|$)/g, '');
   }
 
   function renderSourcePreservingBlock(block, source) {
@@ -880,7 +930,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
 
   function isInlineTokenStart(source, index) {
     const char = source[index];
-    return char === '`' || char === '*' || char === '_' || char === '~' || char === '[' || char === '!'
+    return (char === '<' && source.startsWith('<!--', index)) || char === '`' || char === '*' || char === '_' || char === '~' || char === '[' || char === '!'
       || (char === '<' && /^<(?:https?|mailto):[^\s<>]+>/i.test(source.slice(index, index + 2048)))
       || bareUrlAt(source, index) !== null;
   }
@@ -909,6 +959,13 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
 
   function readInlineToken(source, index, baseOffset) {
     const rest = source.slice(index);
+
+    // A comment inside a line is kept as a marker: hidden in Preview, like a whole-line one.
+    if (rest.startsWith('<!--')) {
+      const close = source.indexOf('-->', index + 4);
+      const end = close === -1 ? source.length : close + 3;
+      return { node: createMarkdownMarker(source.slice(index, end)), end };
+    }
 
     const image = rest.match(/^!\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)/);
     if (image) {
@@ -1007,10 +1064,19 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
       }
     }
 
+    // A long run (a form's ______ blank, a **** divider) is text, not empty emphasis.
+    const runChar = rest[0];
+    if (runChar === '_' || runChar === '*' || runChar === '~') {
+      let run = 1;
+      while (rest[run] === runChar) run += 1;
+      if (run >= (runChar === '*' ? 4 : 3)) return { node: createEditableTextNode(rest.slice(0, run)), end: index + run };
+    }
+    const emphasised = text => text.trim() !== '' && !/^\s|\s$/.test(text);
+
     for (const [delimiter, tagName, kind] of [['**', 'strong', 'bold'], ['__', 'strong', 'bold'], ['~~', 'del', 'strike']]) {
       if (!rest.startsWith(delimiter)) continue;
       const close = source.indexOf(delimiter, index + delimiter.length);
-      if (close === -1) continue;
+      if (close === -1 || !emphasised(source.slice(index + delimiter.length, close))) continue;
       const wrapper = document.createElement(tagName);
       wrapper.className = 'md-inline-element';
       setMarkdownRange(wrapper, kind, baseOffset + index, baseOffset + close + delimiter.length, baseOffset + index + delimiter.length, baseOffset + close);
@@ -1023,7 +1089,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     for (const [delimiter, tagName, kind] of [['*', 'em', 'italic'], ['_', 'em', 'italic']]) {
       if (!rest.startsWith(delimiter) || rest.startsWith(delimiter + delimiter)) continue;
       const close = source.indexOf(delimiter, index + 1);
-      if (close === -1) continue;
+      if (close === -1 || !emphasised(source.slice(index + 1, close))) continue;
       const wrapper = document.createElement(tagName);
       wrapper.className = 'md-inline-element';
       setMarkdownRange(wrapper, kind, baseOffset + index, baseOffset + close + 1, baseOffset + index + 1, baseOffset + close);
@@ -1912,7 +1978,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
 
   function inlineMarkdown(raw) {
     const tokens = [];
-    let value = escapeHtml(raw);
+    let value = escapeHtml(stripComments(raw));
 
     value = value.replace(/`([^`]+)`/g, (_, code) => tokenise(tokens, `<code>${code}</code>`));
 
@@ -2184,15 +2250,24 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     const flat = [];
     const stack = [];
     let inFence = false;
+    let inComment = false;
     let total = 0;
     let checked = 0;
 
     lines.forEach((line, lineIndex) => {
+      if (inComment) {
+        if (line.includes('-->')) inComment = false;
+        return;
+      }
       if (/^\s*```/.test(line)) {
         inFence = !inFence;
         return;
       }
       if (inFence) return;
+      if (/^\s*<!--/.test(line) && !/^\s*<!--[\s\S]*?-->/.test(line)) {
+        inComment = true;
+        return;
+      }
 
       const headingMatch = line.match(/^(#{1,6})\s+(.+?)\s*$/);
       if (headingMatch) {
@@ -2704,7 +2779,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
 
 
   function applyFormatting(kind) {
-    if (state.editorMode !== 'edit' || state.changes) return;
+    if (state.editorMode !== 'edit' || state.changes || state.fill) return;
 
     if (!selectedNote()) return;
     if (kind === 'video' || kind === 'video-task') {
@@ -2877,7 +2952,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
   }
 
   async function insertFiles(files, source = 'picker') {
-    if (state.editorMode !== 'edit' || state.attachmentBusy || state.changes) return;
+    if (state.editorMode !== 'edit' || state.attachmentBusy || state.changes || state.fill) return;
     files = [...(files || [])].filter(file => file instanceof File);
     if (files.length === 0) return;
 
@@ -3060,6 +3135,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     const label = String(options.label || 'Other version').trim() || 'Other version';
     if (state.compare) finishCompare('restart', { notify: false });
     if (state.changes) hideChanges('compare');
+    if (state.fill) endFill('compare');
     const previousMode = getWorkspaceMode();
     if (previousMode !== 'source') await applyWorkspaceMode('source', { keepCompare: true });
     state.compare = { label, previousMode, other };
@@ -3141,6 +3217,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
   // word (changes.js); Edit and Source show the Markdown, with the merge view used by Compare.
   async function showChanges(markdown, options = {}) {
     if (state.compare) finishCompare('changes');
+    if (state.fill) endFill('changes');
     const normalise = text => ensureTrailingBlankLine(String(text ?? '').replace(/\r\n?/g, '\n'));
     const label = String(options.label || '').trim() || 'the other version';
     const toLabel = String(options.toLabel || '').trim();
@@ -3285,6 +3362,331 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     return snapshot;
   }
 
+  // Fill mode (forms, see forms.js): the template drawn as in Preview, with real inputs for its
+  // fields and its <!-- comments --> shown as hints for the person filling it in. The answers
+  // stay here; Send checks them and hands them to the host (slate:form-submit), which sends them.
+  async function startFill(options = {}) {
+    const form = parseForm(selectedNote()?.content || '');
+    if (!form) throw new Error('This document is not a form template: its front matter has no form key.');
+    if (form.error) throw new Error(form.error);
+    if (state.compare) finishCompare('fill');
+    if (state.changes) hideChanges('fill');
+    state.fill = { form, answers: {}, problems: new Map(), generation: 0, uid: uuid().slice(0, 8), busy: false };
+    setFillAnswers(options.answers);
+    el.fillTitle.textContent = `Filling in: ${form.title}`;
+    el.fillSubmit.textContent = String(options.submitLabel || 'Send');
+    el.fillSubmit.hidden = options.submit === false;
+    el.fillSubmit.disabled = false;
+    setFillStatus(options.status || '');
+    el.app.dataset.filling = 'true';
+    el.fillPane.hidden = false;
+    await renderFill();
+    el.fillForm.scrollTop = 0;
+    return fillSnapshot();
+  }
+
+  /** Answers as the host gave them, kept only for fields the form has, in the right shape. */
+  function setFillAnswers(answers) {
+    const fill = state.fill;
+    if (!fill) return;
+    const given = answers && typeof answers === 'object' ? answers : {};
+    fill.answers = {};
+    fill.form.fields.forEach(field => {
+      const value = given[field.name];
+      if (field.multi) fill.answers[field.name] = Array.isArray(value) ? value.map(String).filter(v => field.options.includes(v)) : [];
+      else fill.answers[field.name] = value === undefined || value === null || Array.isArray(value) ? '' : String(value);
+    });
+  }
+
+  // The template changed while it was being filled in: draw the new one, keeping the answers.
+  async function refreshFill() {
+    const fill = state.fill;
+    const form = parseForm(selectedNote()?.content || '');
+    if (!form || form.error) {
+      endFill('replaced');
+      return;
+    }
+    const answers = fill.answers;
+    fill.form = form;
+    setFillAnswers(answers);
+    el.fillTitle.textContent = `Filling in: ${form.title}`;
+    await renderFill();
+  }
+
+  async function renderFill() {
+    const fill = state.fill;
+    if (!fill) return;
+    const generation = ++fill.generation;
+    const pane = el.fillForm;
+    destroyMediaPlayers(pane);
+    const { markdown, hints } = fillMarkdown(fill.form);
+    const fragment = document.createDocumentFragment();
+    splitMarkdownIntoLiveBlocks(markdown).forEach(source => fragment.appendChild(createLiveBlock(source)));
+    pane.replaceChildren(fragment);
+    placeFormMarks(pane, fill, hints);
+    hydrateDiagrams(pane);
+    await hydrateAttachments(pane);
+    if (state.fill !== fill || generation !== fill.generation) return;
+    hydrateWikiLinks(pane);
+    // The document's own task boxes and videos are not answers.
+    pane.querySelectorAll('.task-checkbox').forEach(checkbox => { checkbox.disabled = true; });
+    pane.querySelectorAll('.media-source-toggle').forEach(button => { button.hidden = true; });
+    showFillProblems();
+  }
+
+  /** Puts a field's inputs in place of each field mark and a hint in place of each comment mark. */
+  function placeFormMarks(pane, fill, hints) {
+    const walker = document.createTreeWalker(pane, NodeFilter.SHOW_TEXT);
+    const nodes = [];
+    while (walker.nextNode()) {
+      if (/[]/.test(walker.currentNode.nodeValue)) nodes.push(walker.currentNode);
+    }
+    nodes.forEach(node => {
+      const text = node.nodeValue;
+      const fragment = document.createDocumentFragment();
+      let last = 0;
+      for (const match of text.matchAll(/(\d+)|(\d+)/g)) {
+        if (match.index > last) fragment.appendChild(document.createTextNode(text.slice(last, match.index)));
+        if (match[1] !== undefined) {
+          const field = fill.form.fields[Number(match[1])];
+          if (field) fragment.appendChild(createFieldWidget(fill, field));
+        } else {
+          const hint = document.createElement('span');
+          hint.className = 'form-hint';
+          hint.textContent = hints[Number(match[2])] || '';
+          fragment.appendChild(hint);
+        }
+        last = match.index + match[0].length;
+      }
+      if (last < text.length) fragment.appendChild(document.createTextNode(text.slice(last)));
+      node.replaceWith(fragment);
+    });
+    pane.querySelectorAll('.form-hint').forEach(hint => {
+      const block = hint.closest('.live-block');
+      if (block && block.textContent.trim() === hint.textContent.trim()) hint.classList.add('form-hint-block');
+    });
+  }
+
+  function fieldLabel(field) {
+    return field.label || field.name.replace(/_/g, ' ');
+  }
+
+  function createFieldWidget(fill, field) {
+    const wrap = document.createElement('span');
+    wrap.className = `form-field form-field-${field.type}${field.multi ? ' form-field-multi' : ''}`;
+    wrap.dataset.field = field.name;
+    const id = `slate-${fill.uid}-${field.name}`;
+    const label = fieldLabel(field);
+    const value = fill.answers[field.name];
+    const error = document.createElement('span');
+    error.className = 'form-error';
+    error.id = `${id}-error`;
+    error.hidden = true;
+    const describe = control => {
+      control.setAttribute('aria-describedby', error.id);
+      if (field.required) control.setAttribute('aria-required', 'true');
+    };
+    const option = (type, name, optionValue, text, checked) => {
+      const item = document.createElement('label');
+      item.className = 'form-option';
+      const input = document.createElement('input');
+      input.type = type;
+      input.name = name;
+      input.value = optionValue;
+      input.checked = checked;
+      const caption = document.createElement('span');
+      caption.textContent = text;
+      item.append(input, caption);
+      return item;
+    };
+    if (field.type === 'choice' || field.type === 'yesno') {
+      const group = document.createElement('span');
+      group.className = 'form-options';
+      group.setAttribute('role', field.multi ? 'group' : 'radiogroup');
+      group.setAttribute('aria-label', label);
+      describe(group);
+      const options = field.type === 'yesno' ? ['Yes', 'No'] : field.options;
+      options.forEach(text => {
+        const checked = field.multi ? value.includes(text) : value === text;
+        group.appendChild(option(field.multi ? 'checkbox' : 'radio', id, text, text, checked));
+      });
+      wrap.appendChild(group);
+    } else if (field.type === 'sign') {
+      const item = option('checkbox', id, 'true', 'Sign: your name and the time are added when you send it', value === 'true');
+      item.classList.add('form-sign');
+      describe(item.querySelector('input'));
+      wrap.appendChild(item);
+    } else {
+      let control;
+      if (field.type === 'textarea') {
+        control = document.createElement('textarea');
+        control.rows = Number(field.attrs.rows) || 4;
+      } else if (field.type === 'select') {
+        control = document.createElement('select');
+        const none = document.createElement('option');
+        none.value = '';
+        none.textContent = field.placeholder || 'Choose…';
+        control.appendChild(none);
+        field.options.forEach(text => {
+          const item = document.createElement('option');
+          item.value = text;
+          item.textContent = text;
+          control.appendChild(item);
+        });
+      } else {
+        control = document.createElement('input');
+        const types = { email: 'email', phone: 'tel', date: 'date', time: 'time' };
+        control.type = types[field.type] || 'text';
+        if (field.type === 'number') control.inputMode = 'decimal';
+        if (field.type === 'date' || field.type === 'time') {
+          const today = localToday();
+          if (field.attrs.min) control.min = field.attrs.min === 'today' ? today : field.attrs.min;
+          if (field.attrs.max) control.max = field.attrs.max === 'today' ? today : field.attrs.max;
+        }
+      }
+      if (field.type === 'text' || field.type === 'textarea') {
+        const max = Number(field.attrs.max) || (field.type === 'textarea' ? 5000 : 200);
+        control.maxLength = max;
+        if (field.type === 'text') control.size = Math.max(12, Math.min(48, max));
+      }
+      control.id = id;
+      control.className = 'form-control';
+      control.setAttribute('aria-label', label);
+      if (field.placeholder && field.type !== 'select') control.placeholder = field.placeholder;
+      control.value = value;
+      describe(control);
+      wrap.appendChild(control);
+    }
+    wrap.appendChild(error);
+    return wrap;
+  }
+
+  function readFieldValue(wrap, field) {
+    if (field.type === 'choice' || field.type === 'yesno') {
+      const checked = [...wrap.querySelectorAll('input:checked')].map(input => input.value);
+      return field.multi ? checked : (checked[0] || '');
+    }
+    if (field.type === 'sign') return wrap.querySelector('input').checked ? 'true' : '';
+    return wrap.querySelector('.form-control')?.value ?? '';
+  }
+
+  function handleFillInput(event) {
+    const fill = state.fill;
+    const wrap = event.target.closest('.form-field');
+    if (!fill || !wrap) return;
+    const field = fill.form.fields.find(f => f.name === wrap.dataset.field);
+    if (!field) return;
+    const value = readFieldValue(wrap, field);
+    const before = JSON.stringify(fill.answers[field.name]);
+    fill.answers[field.name] = value;
+    if (fill.problems.delete(field.name)) {
+      showFillProblems();
+      if (!fill.problems.size && el.fillStatus.dataset.kind === 'error') setFillStatus('');
+    }
+    if (JSON.stringify(value) !== before) dispatchEditorEvent('slate:form-input', { name: field.name, answers: fillAnswers() });
+  }
+
+  function fillAnswers() {
+    if (!state.fill) return {};
+    return JSON.parse(JSON.stringify(state.fill.answers));
+  }
+
+  /** Checks every answer as the server will; shows the problems and returns them. */
+  function checkFill(options = {}) {
+    const fill = state.fill;
+    if (!fill) return [];
+    const problems = checkAnswers(fill.form, fill.answers, localToday());
+    fill.problems = new Map(problems.map(p => [p.name, p.message]));
+    showFillProblems({ focus: options.focus !== false });
+    return problems;
+  }
+
+  /** Shows problems the host was given (the server's, by field); returns those of unknown fields. */
+  function setFillProblems(problems = []) {
+    const fill = state.fill;
+    if (!fill) return [];
+    const names = new Set(fill.form.fields.map(f => f.name));
+    const known = (Array.isArray(problems) ? problems : []).filter(p => names.has(p?.name));
+    fill.problems = new Map(known.map(p => [p.name, String(p.message || 'This answer needs fixing.')]));
+    showFillProblems({ focus: true });
+    return (Array.isArray(problems) ? problems : []).filter(p => !names.has(p?.name));
+  }
+
+  function showFillProblems(options = {}) {
+    const fill = state.fill;
+    if (!fill) return;
+    let first = null;
+    el.fillForm.querySelectorAll('.form-field').forEach(wrap => {
+      const message = fill.problems.get(wrap.dataset.field) || '';
+      const error = wrap.querySelector('.form-error');
+      error.textContent = message;
+      error.hidden = !message;
+      wrap.classList.toggle('has-error', Boolean(message));
+      wrap.querySelectorAll('input, textarea, select, .form-options').forEach(control => {
+        if (message) control.setAttribute('aria-invalid', 'true');
+        else control.removeAttribute('aria-invalid');
+      });
+      if (message && !first) first = wrap;
+    });
+    if (first && options.focus) {
+      scrollPreviewElementIntoView(first);
+      first.querySelector('input, textarea, select')?.focus({ preventScroll: true });
+    }
+  }
+
+  function setFillStatus(text, options = {}) {
+    if (!state.fill) return;
+    el.fillStatus.textContent = String(text || '');
+    el.fillStatus.dataset.kind = options.kind || '';
+    if (options.busy !== undefined) {
+      state.fill.busy = Boolean(options.busy);
+      el.fillSubmit.disabled = state.fill.busy;
+    }
+  }
+
+  // Send: checks the answers here first, then hands them to the host.
+  function submitFill() {
+    const fill = state.fill;
+    if (!fill || fill.busy) return;
+    const problems = checkFill();
+    if (problems.length) {
+      setFillStatus(problems.length === 1 ? '1 answer needs fixing.' : `${problems.length} answers need fixing.`, { kind: 'error' });
+      return;
+    }
+    setFillStatus('');
+    dispatchEditorEvent('slate:form-submit', { form: fill.form.form, title: fill.form.title, answers: fillAnswers() });
+  }
+
+  function publicForm(form) {
+    if (!form) return null;
+    return {
+      form: form.form,
+      title: form.title,
+      submitTo: form.submitTo,
+      error: form.error,
+      fields: form.fields.map(f => ({ type: f.type, name: f.name, label: fieldLabel(f), required: f.required, multi: f.multi, options: [...f.options] })),
+    };
+  }
+
+  function fillSnapshot() {
+    if (!state.fill) return { filling: false, form: null, answers: {} };
+    return { filling: true, form: publicForm(state.fill.form), answers: fillAnswers() };
+  }
+
+  // Back to the document. Returns the answers, which the host may keep as a draft.
+  function endFill(reason = 'done', options = {}) {
+    if (!state.fill) return {};
+    const answers = fillAnswers();
+    const form = state.fill.form.form;
+    state.fill = null;
+    el.fillPane.hidden = true;
+    delete el.app.dataset.filling;
+    destroyMediaPlayers(el.fillForm);
+    el.fillForm.replaceChildren();
+    if (options.notify !== false) dispatchEditorEvent('slate:fill-end', { reason, form, answers });
+    return answers;
+  }
+
   function dispatchEditorEvent(name, detail) {
     if (!mountHost) return;
     mountHost.dispatchEvent(new CustomEvent(name, {
@@ -3317,6 +3719,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
         updateDocumentStats();
         if (state.editorMode === 'view') await renderPreview();
         if (state.changes && state.changes.to === null) await renderChanges();
+        if (state.fill) await refreshFill();
         dispatchDocumentChange();
       },
       getWorkspaceMode() {
@@ -3410,6 +3813,43 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
       getChangesState() {
         return changesSnapshot();
       },
+      getForm(markdown) {
+        return publicForm(parseForm(markdown === undefined ? (selectedNote()?.content || '') : markdown));
+      },
+      isForm(markdown) {
+        return isFormTemplate(markdown === undefined ? (selectedNote()?.content || '') : markdown);
+      },
+      startFill(options = {}) {
+        return startFill(options);
+      },
+      endFill() {
+        return endFill('host');
+      },
+      isFilling() {
+        return Boolean(state.fill);
+      },
+      getFillState() {
+        return fillSnapshot();
+      },
+      getFormAnswers() {
+        return fillAnswers();
+      },
+      async setFormAnswers(answers) {
+        if (!state.fill) return {};
+        setFillAnswers(answers);
+        state.fill.problems.clear();
+        await renderFill();
+        return fillAnswers();
+      },
+      checkForm() {
+        return checkFill();
+      },
+      setFormProblems(problems) {
+        return setFillProblems(problems);
+      },
+      setFormStatus(text, options = {}) {
+        setFillStatus(text, options);
+      },
       setChangesToggle(handler) {
         if (handler !== null && handler !== undefined && typeof handler !== 'function') {
           throw new TypeError('setChangesToggle requires a function or null.');
@@ -3425,7 +3865,8 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     const methodNames = [
       'getMarkdown', 'setMarkdown', 'getWorkspaceMode', 'setWorkspaceMode', 'setReadOnly',
       'isOutlineOpen', 'setOutlineOpen', 'getOutline', 'revealLine', 'getTopLine', 'compare', 'endCompare',
-      'isComparing', 'getCompareState', 'showChanges', 'hideChanges', 'isShowingChanges', 'getChangesState', 'setChangesToggle', 'selectSourceRange', 'getSourceSelection', 'restoreView', 'setSourceHighlights', 'isDocumentComplete', 'getCompletionState',
+      'isComparing', 'getCompareState', 'showChanges', 'hideChanges', 'isShowingChanges', 'getChangesState', 'setChangesToggle',
+      'getForm', 'isForm', 'startFill', 'endFill', 'isFilling', 'getFillState', 'getFormAnswers', 'setFormAnswers', 'checkForm', 'setFormProblems', 'setFormStatus', 'selectSourceRange', 'getSourceSelection', 'restoreView', 'setSourceHighlights', 'isDocumentComplete', 'getCompletionState',
       'onDocumentComplete', 'focus'
     ];
     methodNames.forEach(name => {

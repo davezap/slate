@@ -76,7 +76,7 @@ export interface SlateCompareState {
 
 export interface SlateCompareEndDetail {
   /** 'done' (the Done button), 'host' (endCompare()), 'replaced' (setMarkdown()), 'mode', 'read-only' or 'changes' (showChanges()). */
-  reason: 'done' | 'host' | 'replaced' | 'mode' | 'read-only' | 'changes';
+  reason: 'done' | 'host' | 'replaced' | 'mode' | 'read-only' | 'changes' | 'fill';
   label: string;
   differences: number;
   markdown: string;
@@ -100,10 +100,75 @@ export interface SlateChangesState {
 }
 
 export interface SlateChangesEndDetail {
-  /** 'done' (the Hide Changes button), 'host' (hideChanges()) or 'compare' (compare() replaced it). */
-  reason: 'done' | 'host' | 'compare';
+  /** 'done' (the Hide Changes button), 'host' (hideChanges()), 'compare' or 'fill' (compare() or startFill() replaced it). */
+  reason: 'done' | 'host' | 'compare' | 'fill';
   label: string;
   toLabel: string;
+}
+
+export type SlateFieldType = 'text' | 'textarea' | 'number' | 'date' | 'time' | 'email' | 'phone' | 'choice' | 'select' | 'yesno' | 'sign';
+
+export interface SlateFormField {
+  type: SlateFieldType;
+  /** The answer's key. */
+  name: string;
+  /** The field's label, or its name with spaces. */
+  label: string;
+  required: boolean;
+  /** A choice that takes several options (its answer is a list). */
+  multi: boolean;
+  /** A choice's or select's options, in order. */
+  options: string[];
+}
+
+/** A form template (front matter with form, title and submitTo; fields as {{type name=…}} tokens). */
+export interface SlateForm {
+  form: string;
+  title: string;
+  /** owner/space/folder/ the server files copies in. */
+  submitTo: string;
+  /** The template's first mistake, or ''. A form with one can't be filled in. */
+  error: string;
+  fields: SlateFormField[];
+}
+
+/** Answers by field name: text, or a list of options for a choice with multi; a signature is 'true'. */
+export type SlateFormAnswers = Record<string, string | string[]>;
+
+export interface SlateFormProblem {
+  name: string;
+  message: string;
+}
+
+export interface SlateFillOptions {
+  /** Answers to start from, such as a saved draft; unknown fields and options are dropped. */
+  answers?: SlateFormAnswers;
+  /** The Send button's text. Default "Send". */
+  submitLabel?: string;
+  /** false hides Send, for a host that sends some other way. */
+  submit?: boolean;
+  /** A message for the bar, such as "Draft from yesterday". */
+  status?: string;
+}
+
+export interface SlateFillState {
+  filling: boolean;
+  form: SlateForm | null;
+  answers: SlateFormAnswers;
+}
+
+export interface SlateFormSubmitDetail {
+  form: string;
+  title: string;
+  answers: SlateFormAnswers;
+}
+
+export interface SlateFillEndDetail {
+  /** 'done' (Stop Filling In), 'host' (endFill()), 'replaced' (setMarkdown() with a text that is no form), 'compare' or 'changes'. */
+  reason: 'done' | 'host' | 'replaced' | 'compare' | 'changes';
+  form: string;
+  /** The answers when it ended, for keeping as a draft. */
+  answers: SlateFormAnswers;
 }
 
 export interface SlateEditorApi {
@@ -168,6 +233,30 @@ export interface SlateEditorApi {
    * Pass null to remove it.
    */
   setChangesToggle(handler: (() => unknown | Promise<unknown>) | null): void;
+  /** The document (or `markdown`) as a form template, or null when it is not one. */
+  getForm(markdown?: string): SlateForm | null;
+  /** Whether the document (or `markdown`) is a form template: front matter with form and no submittedAt. */
+  isForm(markdown?: string): boolean;
+  /**
+   * Fill mode: the form drawn as in Preview, with inputs for its fields and its <!-- comments -->
+   * as hints, in place of the document (which stays as it is). Send checks every answer and fires
+   * `slate:form-submit` when they pass; the host sends them. Rejects when the document is not a
+   * form or the template has a mistake. setMarkdown() redraws it, keeping the answers. Ends on
+   * Stop Filling In, endFill(), compare() or showChanges(), firing `slate:fill-end`.
+   */
+  startFill(options?: SlateFillOptions): Promise<SlateFillState>;
+  /** Back to the document; returns the answers. */
+  endFill(): SlateFormAnswers;
+  isFilling(): boolean;
+  getFillState(): SlateFillState;
+  getFormAnswers(): SlateFormAnswers;
+  setFormAnswers(answers: SlateFormAnswers): Promise<SlateFormAnswers>;
+  /** Checks every answer as the server will, shows the problems by their fields and returns them. */
+  checkForm(): SlateFormProblem[];
+  /** Shows problems by field (the server's); returns those naming fields the form doesn't have. */
+  setFormProblems(problems: SlateFormProblem[]): SlateFormProblem[];
+  /** A message in the bar; kind 'error' or 'done' colours it, busy disables Send. */
+  setFormStatus(text: string, options?: { kind?: 'error' | 'done' | ''; busy?: boolean }): void;
   isDocumentComplete(): boolean;
   getCompletionState(): SlateCompletionState;
   onDocumentComplete(

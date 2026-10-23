@@ -1,4 +1,4 @@
-# Slate Markdown Editor Components — 0.17.0
+# Slate Markdown Editor Components — 0.18.0
 
 This project is the reusable Slate Markdown editor extracted from the current Wire integration.
 
@@ -8,8 +8,8 @@ Edit and Source are one [CodeMirror 6](https://codemirror.net/) editor: Source s
 
 ## What is included
 
-- `slate.js` — complete Slate 0.17.0 editor/component, built from `src/` (don't edit it by hand).
-- `src/slate.js` — the editor source; `src/source-editor.js` — the CodeMirror editor behind Edit and Source; `src/live-preview.js` — Edit mode's Live Preview drawing; `src/changes.js` — the block and word comparison behind Show Changes.
+- `slate.js` — complete Slate 0.18.0 editor/component, built from `src/` (don't edit it by hand).
+- `src/slate.js` — the editor source; `src/source-editor.js` — the CodeMirror editor behind Edit and Source; `src/live-preview.js` — Edit mode's Live Preview drawing; `src/changes.js` — the block and word comparison behind Show Changes; `src/forms.js` — form templates: fields, answer checks and fill mode's text.
 - `slate.css` — generic scoped component styling.
 - `mermaid/` — [Mermaid](https://mermaid.js.org/) for diagrams, built from `src/mermaid-entry.js`: `mermaid.js` plus a chunk per diagram type. Hosts copy the folder next to `slate.js`; it is loaded only when a document has a diagram (see **Diagrams**).
 - `themes/bartco.css` — the current Wire/Bartco light-theme overrides, kept separately so the component can be reused elsewhere without forcing Bartco branding.
@@ -233,7 +233,26 @@ In **Preview** the rendered document is shown with removed words struck through 
 
 Slate doesn't keep versions, so the host decides what to compare with. `setChangesToggle(handler)` adds a **± Changes** toggle to the toolbar; turning it on calls `handler`, which fetches the version it wants and calls `showChanges()`, and turning it off hides the changes. While the editor is read only the toolbar shows just this toggle, so readers can use it. `setChangesToggle(null)` removes it.
 
-Current Slate 0.17.0 supports **one mounted editor per page**.
+### Forms (fill mode)
+
+A form template is a Markdown document whose front matter has `form`, `title` and `submitTo`, with fields as `{{type name=… …}}` tokens: `text`, `textarea`, `number`, `date`, `time`, `email`, `phone`, `choice` (with `multi` for several), `select`, `yesno` and `sign`. A choice or select takes its options from the list right below it. Metatrash 0.49.0 checks and files submissions; its `docs/forms.md` describes the syntax in full, and `src/forms.js` here parses it the same way.
+
+```javascript
+if (editor.isForm()) {
+  await editor.startFill({ answers: savedDraft });        // inputs in place of the tokens
+}
+host.addEventListener('slate:form-input', e => saveDraft(e.detail.answers));
+host.addEventListener('slate:form-submit', async e => {   // Send passed Slate's checks
+  editor.setFormStatus('Sending…', { busy: true });
+  const result = await send(e.detail.answers);
+  if (result.fields) editor.setFormProblems(result.fields);    // the server's, by field
+  else editor.setFormStatus('Sent', { kind: 'done' });
+});
+```
+
+Fill mode draws the form as Preview does, in place of the document, with a real input for each field (radio buttons or check boxes under a choice, a drop-down for select, a box to tick for a signature) and the template's `<!-- comments -->` shown as hints: they are notes for the person filling it in, hidden everywhere else in Preview. Tokens in code stay text. **Send** checks every answer (required, lengths, patterns, number and date ranges, options) and shows each problem under its field; when they pass it fires `slate:form-submit`, and the host sends the answers. The document itself is never changed. `getForm()` returns the template's fields (or its first mistake), `getFormAnswers()` / `setFormAnswers()` read and set answers, `checkForm()` runs the checks, and **Stop Filling In** or `endFill()` go back to the document, firing `slate:fill-end` with the answers.
+
+Current Slate 0.18.0 supports **one mounted editor per page**.
 
 ## Events
 
@@ -290,6 +309,21 @@ host.addEventListener('slate:compare-end', event => {
 host.addEventListener('slate:changes-end', event => {
   // reason: 'done' (Hide Changes) | 'host' (hideChanges()) | 'compare'
   const { reason, label, toLabel } = event.detail;
+});
+```
+
+### Forms
+
+```javascript
+host.addEventListener('slate:form-input', event => {
+  const { name, answers } = event.detail;          // an answer changed
+});
+host.addEventListener('slate:form-submit', event => {
+  const { form, title, answers } = event.detail;   // Send, and every answer passed
+});
+host.addEventListener('slate:fill-end', event => {
+  // reason: 'done' (Stop Filling In) | 'host' | 'replaced' | 'compare' | 'changes'
+  const { reason, form, answers } = event.detail;
 });
 ```
 
@@ -408,7 +442,7 @@ This is intentional: host applications mount one component rather than recreatin
 
 ## Limitations
 
-- One Slate editor instance per page in 0.17.0.
+- One Slate editor instance per page in 0.18.0.
 - Edit draws headings written with `#` only; a line of `---` under text shows as a rule, matching Preview.
 - The built-in Markdown parser covers the Markdown used by Slate/Wire but is not a complete CommonMark implementation.
 - Wiki links render but Slate does not provide a note collection/router itself.

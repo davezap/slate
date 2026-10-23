@@ -82,10 +82,15 @@ function walkBack(trace, edits, n, m, start) {
   return ops.reverse();
 }
 
+/** A blank line, or only an HTML comment: hidden in Preview, so changing it is not a change. */
+export function isQuiet(source) {
+  return !String(source).replace(/<!--[\s\S]*?(?:-->|$)/g, '').trim();
+}
+
 /** What a block is, so only like blocks are compared word by word; null for blocks never compared so. */
 export function blockKind(source) {
   const text = String(source);
-  if (!text.trim()) return null;
+  if (isQuiet(text)) return null;
   if (/^\s*```\s*mermaid\b/i.test(text)) return null;
   if (/^\s*```/.test(text)) return 'code';
   if (text.includes('\n')) return 'table';
@@ -180,7 +185,7 @@ export function pairBlocks(removed, added) {
  * The blocks to draw for the change from `oldBlocks` to `newBlocks`:
  * { items: [{ type: 'same' | 'added', source } | { type: 'removed', source } | { type: 'changed', from, to }, with first: true
  * on the first item of each change], changes: the number of separate changes }.
- * Blank lines added or taken out are not changes.
+ * Blank lines and HTML comments added or taken out are not changes.
  */
 export function planChanges(oldBlocks, newBlocks) {
   const ops = diffSequence(oldBlocks, newBlocks);
@@ -202,10 +207,10 @@ export function planChanges(oldBlocks, newBlocks) {
     let first = true;
     for (const item of pairBlocks(removed, added)) {
       if (item.type === 'removed') {
-        if (!item.from.trim()) continue;
+        if (isQuiet(item.from)) continue;
         items.push({ type: 'removed', source: item.from, first });
       } else if (item.type === 'added') {
-        if (!item.to.trim()) {
+        if (isQuiet(item.to)) {
           items.push({ type: 'same', source: item.to });
           continue;
         }

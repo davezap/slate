@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.18.0 — 2026-10-23
+
+- Added **forms**: fill mode for form templates (Metatrash 0.49.0). A template's front matter has `form`, `title` and `submitTo`; its fields are `{{type name=… …}}` tokens: `text`, `textarea`, `number`, `date`, `time`, `email`, `phone`, `choice` (one, or several with `multi`), `select`, `yesno` and `sign`, with `required`, lengths, patterns, ranges, and a choice's options from the list below it. `src/forms.js` parses them as Metatrash does.
+- `startFill({ answers })` draws the form as in Preview, in place of the document, with inputs for its fields and the template's `<!-- comments -->` shown as hints for the person filling it in. Send checks every answer, shows each problem under its field and fires `slate:form-submit`; the host sends the answers. Also `getForm()`, `isForm()`, `endFill()`, `isFilling()`, `getFillState()`, `getFormAnswers()`, `setFormAnswers()`, `checkForm()`, `setFormProblems()` (the server's, by field), `setFormStatus()`, and the `slate:form-input` and `slate:fill-end` events. The document is never changed.
+
+## 0.17.1 — 2026-10-22
+
+- Preview hides HTML comments (`<!-- … -->`), whole-line, over several lines or inside a line, as GitHub and Obsidian do. They are notes for whoever edits the file, such as a template's instructions; Edit and Source still show them. Headings inside a comment stay out of the outline, and Show Changes doesn't count a changed comment as a change.
+- Preview shows a run of underscores, asterisks or tildes (a form's `______` blank) as text. Before, `____` was read as empty bold and disappeared. Emphasis also needs text inside it, not starting or ending with a space, so `a * b * c` stays as typed.
+
 ## 0.17.0 — 2026-10-22
 
 - Added **Show Changes**, for reading what changed since another version: `showChanges(markdown, { label, to?, toLabel? })`, `hideChanges()`, `isShowingChanges()`, `getChangesState()` and the `slate:changes-end` event. It shows the changes read only, in place of the document, and works while the editor is read only.
