@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.19.3 — 2026-10-26
+
+- Print flows better. Each `##` section that won't fit on what is left of a page starts on the next page (a `###` section within it does the same), so a heading is no longer left at the bottom of a page with its text or diagram on the next. Headings stay with what follows them, and table rows, code blocks and quotes are not split.
+- Print leaves out paragraphs that are only links, such as a "Home" link at the top of a page: they're for finding your way on screen.
+
 ## 0.19.2 — 2026-10-26
 
 - Print: a diagram taller than the page is scaled down to fit on one page. Before, the printer split its box over several pages and drew the diagram tiny at the end of it.

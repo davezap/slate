@@ -8,7 +8,7 @@ import { checkAnswers, isFormTemplate, localToday, parseForm, fillMarkdown } fro
   // Where slate.js was loaded from, to find mermaid/ next to it.
   const SCRIPT_URL = document.currentScript?.src || '';
 
-  const APP_VERSION = '0.19.2';
+  const APP_VERSION = '0.19.3';
   const DB_NAME = 'slate-markdown-editor-db';
   const DB_VERSION = 1;
   const NODE_STORE = 'documents';
@@ -289,6 +289,7 @@ import { checkAnswers, isFormTemplate, localToday, parseForm, fillMarkdown } fro
     bindEvents();
     applyStoredTheme(options.theme);
     watchDiagramTheme();
+    watchPrint();
 
     try {
       state.db = await openDatabase();
@@ -1857,6 +1858,59 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     code.className = 'slate-diagram-pending';
     code.textContent = element.dataset.diagramSource ?? '';
     canvas.replaceChildren(message, code);
+  }
+
+  // ---- Printing ----------------------------------------------------------------------------
+  // A printer can't see that a heading belongs with what follows it, so while the page prints,
+  // Preview's blocks are grouped under their ## (and ### within it) headings. A group that would
+  // spill onto the next page starts on a new one (slate.css), so no heading is left alone at the
+  // bottom of a page. Afterwards the blocks go back as they were.
+
+  function watchPrint() {
+    window.addEventListener('beforeprint', groupForPrint);
+    window.addEventListener('afterprint', ungroupAfterPrint);
+  }
+
+  function groupForPrint() {
+    const pane = el.previewPane;
+    if (!pane || pane.querySelector(':scope > .slate-print-section')) return;
+    let section = null;
+    let subsection = null;
+    for (const block of [...pane.children]) {
+      const level = block.querySelector(':scope > h1, :scope > h2, :scope > h3')?.tagName;
+      if (level === 'H1') section = subsection = null;
+      if (level === 'H2') {
+        section = printSection(pane, block);
+        subsection = null;
+      } else if (level === 'H3') {
+        subsection = printSection(section ?? pane, block);
+      }
+      (subsection ?? section)?.append(block);
+    }
+    // A paragraph that is only links, such as a "Home" link at the top, is for finding your way
+    // on screen and is left off paper.
+    pane.querySelectorAll(':scope .live-block > p').forEach(paragraph => {
+      const links = [...paragraph.querySelectorAll('a')];
+      // Separators between links (and the editor's zero-width spaces) don't count as text.
+      const bare = text => text.replace(/[\s\u200b|·•,/–—-]/g, '');
+      const linksOnly = bare(paragraph.textContent) === bare(links.map(link => link.textContent).join(''));
+      if (links.length && linksOnly && !paragraph.querySelector('img, video')) paragraph.parentElement.classList.add('slate-print-hidden');
+    });
+  }
+
+  function printSection(parent, before) {
+    const section = document.createElement('div');
+    section.className = 'slate-print-section';
+    parent.insertBefore(section, before);
+    return section;
+  }
+
+  function ungroupAfterPrint() {
+    const pane = el.previewPane;
+    if (!pane) return;
+    // Inner sections first, so each block goes back to where it was.
+    [...pane.querySelectorAll('.slate-print-section')].reverse().forEach(section => section.replaceWith(...section.childNodes));
+    pane.querySelectorAll('.slate-print-hidden').forEach(block => block.classList.remove('slate-print-hidden'));
   }
 
   // Hosts switch the theme by setting data-theme on the host; diagrams follow it.
