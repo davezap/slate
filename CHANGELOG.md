@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.19.4 — 2026-10-26
+
+- Print: a heading is never the last thing on a page. Before, the blank line after a heading let the page break there, leaving the heading at the bottom with its table or text on the next page.
+
 ## 0.19.3 — 2026-10-26
 
 - Print flows better. Each `##` section that won't fit on what is left of a page starts on the next page (a `###` section within it does the same), so a heading is no longer left at the bottom of a page with its text or diagram on the next. Headings stay with what follows them, and table rows, code blocks and quotes are not split.
