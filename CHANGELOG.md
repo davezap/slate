@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.19.5 — 2026-10-26
+
+- Print: no blank last page. Blank lines at the end of the document and Preview's own top and bottom space are left out, so the page margins are the document's margins.
+- Print: a paragraph that is only links is left out whatever separates the links, including invisible characters.
+
 ## 0.19.4 — 2026-10-26
 
 - Print: a heading is never the last thing on a page. Before, the blank line after a heading let the page break there, leaving the heading at the bottom with its table or text on the next page.

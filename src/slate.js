@@ -8,7 +8,7 @@ import { checkAnswers, isFormTemplate, localToday, parseForm, fillMarkdown } fro
   // Where slate.js was loaded from, to find mermaid/ next to it.
   const SCRIPT_URL = document.currentScript?.src || '';
 
-  const APP_VERSION = '0.19.4';
+  const APP_VERSION = '0.19.5';
   const DB_NAME = 'slate-markdown-editor-db';
   const DB_VERSION = 1;
   const NODE_STORE = 'documents';
@@ -1874,6 +1874,10 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
   function groupForPrint() {
     const pane = el.previewPane;
     if (!pane || pane.querySelector(':scope > .slate-print-section')) return;
+    // Blank lines at the end would only push an empty last page out of the printer.
+    for (let block = pane.lastElementChild; block?.classList.contains('is-empty'); block = block.previousElementSibling) {
+      block.classList.add('slate-print-hidden');
+    }
     let section = null;
     let subsection = null;
     for (const block of [...pane.children]) {
@@ -1891,8 +1895,8 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     // on screen and is left off paper.
     pane.querySelectorAll(':scope .live-block > p').forEach(paragraph => {
       const links = [...paragraph.querySelectorAll('a')];
-      // Separators between links (and the editor's zero-width spaces) don't count as text.
-      const bare = text => text.replace(/[\s\u200b|·•,/–—-]/g, '');
+      // Only letters and digits count: not separators, spaces or the editor's invisible characters.
+      const bare = text => text.replace(/[^\p{L}\p{N}]/gu, '');
       const linksOnly = bare(paragraph.textContent) === bare(links.map(link => link.textContent).join(''));
       if (links.length && linksOnly && !paragraph.querySelector('img, video')) paragraph.parentElement.classList.add('slate-print-hidden');
     });

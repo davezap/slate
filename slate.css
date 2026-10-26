@@ -1205,6 +1205,8 @@
   .slate-editor-host .preview-pane .live-block:has(> :is(h1, h2, h3, h4, h5, h6)) + .live-block.is-empty{ break-after: avoid; }
   .slate-editor-host .preview-pane :is(tr, pre, blockquote, img){ break-inside: avoid; }
   .slate-editor-host .preview-pane .slate-print-hidden{ display: none; }
+  /* The page's margins are the document's margins. */
+  .slate-editor-host .preview-pane{ padding-top: 0; padding-bottom: 0; }
 }
 
 /* Diagrams (```mermaid), drawn by mermaid/mermaid.js once a document has one. */
