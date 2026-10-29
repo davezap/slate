@@ -1,4 +1,4 @@
-# Slate Markdown Editor Components — 0.18.0
+# Slate Markdown Editor Components — 0.19.5
 
 This project is the reusable Slate Markdown editor extracted from the current Wire integration.
 
@@ -8,7 +8,7 @@ Edit and Source are one [CodeMirror 6](https://codemirror.net/) editor: Source s
 
 ## What is included
 
-- `slate.js` — complete Slate 0.18.0 editor/component, built from `src/` (don't edit it by hand).
+- `slate.js` — complete Slate 0.19.5 editor/component, built from `src/` (don't edit it by hand).
 - `src/slate.js` — the editor source; `src/source-editor.js` — the CodeMirror editor behind Edit and Source; `src/live-preview.js` — Edit mode's Live Preview drawing; `src/changes.js` — the block and word comparison behind Show Changes; `src/forms.js` — form templates: fields, answer checks and fill mode's text.
 - `slate.css` — generic scoped component styling.
 - `mermaid/` — [Mermaid](https://mermaid.js.org/) for diagrams, built from `src/mermaid-entry.js`: `mermaid.js` plus a chunk per diagram type. Hosts copy the folder next to `slate.js`; it is loaded only when a document has a diagram (see **Diagrams**).
@@ -256,7 +256,7 @@ To make the form the document's Preview, as Slate Viewer does, pass `inPreview: 
 
 Preview hides a document's front matter (the `---` block at the top), as it hides comments; Edit and Source show it.
 
-Current Slate 0.18.0 supports **one mounted editor per page**.
+Current Slate 0.19.5 supports **one mounted editor per page**.
 
 ## Events
 
@@ -442,11 +442,12 @@ This is intentional: host applications mount one component rather than recreatin
 - Standalone IndexedDB persistence and attachment storage.
 - Host-controlled nonpersistent Markdown.
 - Light, dark and paper themes.
+- Printing from Preview (0.19.2–0.19.5): diagrams scaled to fit a page, each `##` section that won't fit starts on a new page, headings stay with what follows, table rows, code blocks and quotes aren't split, and link-only paragraphs and trailing blank lines are left out.
 - Scoped CSS suitable for direct embedding in an existing page.
 
 ## Limitations
 
-- One Slate editor instance per page in 0.18.0.
+- One Slate editor instance per page in 0.19.5.
 - Edit draws headings written with `#` only; a line of `---` under text shows as a rule, matching Preview.
 - The built-in Markdown parser covers the Markdown used by Slate/Wire but is not a complete CommonMark implementation.
 - Wiki links render but Slate does not provide a note collection/router itself.
@@ -464,8 +465,8 @@ These three projects are parts of one whole, kept in sibling folders:
   is a handy Markdown editor that can also open Metatrash spaces (through `mtsync`). Over time it
   becomes the desktop companion for managing Metatrash spaces, and those features come later.
 
-Metatrash's website still bundles an older Slate (0.9.2) for read-only viewing. It isn't
-upgraded yet.
+Metatrash's website embeds Slate too, read-only (Slate 0.19.5 since Metatrash 0.57.5), in
+`internal/service/web/`; copy `slate.js`, `slate.css` and `mermaid/` there to update it.
 
 ## Relationship to Wire
 
