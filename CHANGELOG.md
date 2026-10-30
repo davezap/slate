@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.20.0 — 2026-10-30
+
+- Preview and print show a few plain HTML tags written in the text: `<br>` (also `<br/>` and `<br />`) breaks the line, which is the only way to put several lines in one table cell, and `<b>`, `<strong>`, `<i>`, `<em>`, `<u>`, `<s>`, `<del>`, `<ins>`, `<mark>`, `<sub>`, `<sup>`, `<small>`, `<kbd>` and `<code>` work as their names say. Only the bare tags: a tag with attributes, any other tag, and HTML inside backticks stay as typed, so a document still can't run scripts or change the page.
+
 ## 0.19.5 — 2026-10-26
 
 - Print: no blank last page. Blank lines at the end of the document and Preview's own top and bottom space are left out, so the page margins are the document's margins.

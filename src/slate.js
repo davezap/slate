@@ -8,7 +8,7 @@ import { checkAnswers, isFormTemplate, localToday, parseForm, fillMarkdown } fro
   // Where slate.js was loaded from, to find mermaid/ next to it.
   const SCRIPT_URL = document.currentScript?.src || '';
 
-  const APP_VERSION = '0.19.5';
+  const APP_VERSION = '0.20.0';
   const DB_NAME = 'slate-markdown-editor-db';
   const DB_VERSION = 1;
   const NODE_STORE = 'documents';
@@ -955,7 +955,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
 
   function isInlineTokenStart(source, index) {
     const char = source[index];
-    return (char === '<' && source.startsWith('<!--', index)) || char === '`' || char === '*' || char === '_' || char === '~' || char === '[' || char === '!'
+    return (char === '<' && source.startsWith('<!--', index)) || (char === '<' && /^<\/?[a-z]+\s*\/?>/i.test(source.slice(index, index + 64))) || char === '`' || char === '*' || char === '_' || char === '~' || char === '[' || char === '!'
       || (char === '<' && /^<(?:https?|mailto):[^\s<>]+>/i.test(source.slice(index, index + 2048)))
       || bareUrlAt(source, index) !== null;
   }
@@ -990,6 +990,34 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
       const close = source.indexOf('-->', index + 4);
       const end = close === -1 ? source.length : close + 3;
       return { node: createMarkdownMarker(source.slice(index, end)), end };
+    }
+
+    // A few plain HTML tags (see INLINE_HTML_TAGS): <br>, or a tag with its closing tag later in the line.
+    const html = rest.match(/^<(\/?)([a-z]+)\s*(\/?)>/i);
+    if (html && !html[1]) {
+      const tag = html[2].toLowerCase();
+      if (tag === 'br' || tag === 'wbr') {
+        const wrapper = document.createElement('span');
+        wrapper.className = 'md-inline-element';
+        setMarkdownRange(wrapper, 'html', baseOffset + index, baseOffset + index + html[0].length, baseOffset + index, baseOffset + index);
+        wrapper.appendChild(createMarkdownMarker(html[0]));
+        wrapper.appendChild(document.createElement(tag));
+        return { node: wrapper, end: index + html[0].length };
+      }
+      const closing = !html[3] && INLINE_HTML_TAGS.has(tag)
+        ? new RegExp(`</${tag}\\s*>`, 'i').exec(source.slice(index + html[0].length))
+        : null;
+      if (closing) {
+        const contentStart = index + html[0].length;
+        const contentEnd = contentStart + closing.index;
+        const wrapper = document.createElement(tag);
+        wrapper.className = 'md-inline-element';
+        setMarkdownRange(wrapper, 'html', baseOffset + index, baseOffset + contentEnd + closing[0].length, baseOffset + contentStart, baseOffset + contentEnd);
+        wrapper.appendChild(createMarkdownMarker(html[0]));
+        appendInlineSource(wrapper, source.slice(contentStart, contentEnd), baseOffset + contentStart);
+        wrapper.appendChild(createMarkdownMarker(closing[0]));
+        return { node: wrapper, end: contentEnd + closing[0].length };
+      }
     }
 
     const image = rest.match(/^!\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)/);
@@ -2064,6 +2092,15 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
 
     value = value.replace(/`([^`]+)`/g, (_, code) => tokenise(tokens, `<code>${code}</code>`));
 
+    // A few plain HTML tags, such as <br> to break a line inside a table cell. Only the bare tag
+    // names in INLINE_HTML_TAGS, with no attributes; anything else stays as literal text.
+    value = value.replace(/&lt;(\/?)([a-z]+)\s*(\/?)&gt;/gi, (whole, close, name, selfClose) => {
+      const tag = name.toLowerCase();
+      if (tag === 'br' || tag === 'wbr') return close ? whole : tokenise(tokens, `<${tag}>`);
+      if (!INLINE_HTML_TAGS.has(tag) || selfClose) return whole;
+      return tokenise(tokens, `<${close}${tag}>`);
+    });
+
     value = value.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+[&quot;]*([^&]*?)[&quot;]*)?\)/g, (_, alt, rawUrl, title) => {
       const url = decodeHtmlEntities(rawUrl);
       if (isAttachmentUrl(url)) {
@@ -2113,6 +2150,8 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
 
     return restoreTokens(value, tokens);
   }
+
+  const INLINE_HTML_TAGS = new Set(['b', 'strong', 'i', 'em', 'u', 's', 'del', 'ins', 'mark', 'sub', 'sup', 'small', 'kbd', 'code']);
 
   function linkHtml(safe, label, titleAttr) {
     const external = isWebUrl(safe) ? ' class="external-link"' : '';
