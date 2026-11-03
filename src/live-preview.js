@@ -1,3 +1,4 @@
+import * as edition from './edition.js';
 // Edit mode (Live Preview): the Source editor with Markdown drawn in place, Obsidian style.
 // Syntax marks are hidden except where the cursor is, so the text stays the Markdown file
 // and every edit is an ordinary CodeMirror edit (one undo history across Edit and Source).
@@ -345,9 +346,9 @@ export function livePreview(options) {
             return false;
           }
 
-          if (name === 'Emphasis' || name === 'StrongEmphasis' || name === 'Strikethrough') {
+          if (name === 'Emphasis' || name === 'StrongEmphasis' || Object.hasOwn(edition.inlineNodes, name)) {
             if (!touches(state, node.from, node.to)) {
-              node.node.getChildren(name === 'Strikethrough' ? 'StrikethroughMark' : 'EmphasisMark').forEach(mark => hide(mark.from, mark.to));
+              node.node.getChildren(edition.inlineNodes[name] || 'EmphasisMark').forEach(mark => hide(mark.from, mark.to));
             }
             return true;
           }
@@ -558,7 +559,7 @@ export const livePreviewHighlight = syntaxHighlighting(HighlightStyle.define([
   { tag: tags.heading, fontWeight: '700' },
   { tag: tags.strong, fontWeight: '720' },
   { tag: tags.emphasis, fontStyle: 'italic' },
-  { tag: tags.strikethrough, textDecoration: 'line-through' },
+  ...edition.highlights,
   { tag: tags.link, color: 'var(--accent-strong)' },
   { tag: tags.url, color: 'var(--text-muted)' },
   { tag: tags.monospace, fontFamily: 'var(--font-editor)', fontSize: '.88em' },

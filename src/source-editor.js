@@ -1,3 +1,4 @@
+import * as edition from './edition.js';
 // The Markdown editor behind Source and Edit modes (Edit adds live-preview.js): CodeMirror 6
 // behind a small textarea-like interface, so the rest of Slate can keep using value,
 // selectionStart/End, setSelectionRange and setRangeText. Like a textarea, only the user's
@@ -8,20 +9,20 @@ import { Annotation, Compartment, EditorSelection, EditorState, Prec, RangeSetBu
 import { Decoration, EditorView, drawSelection, keymap, placeholder } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
 import { HighlightStyle, Language, defineLanguageFacet, languageDataProp, syntaxHighlighting } from '@codemirror/language';
-import { GFM, parser as markdownParser } from '@lezer/markdown';
+import { Table, TaskList, Autolink, parser as markdownParser } from '@lezer/markdown';
 import { tags } from '@lezer/highlight';
 import { getChunks, getOriginalDoc, goToNextChunk, goToPreviousChunk, unifiedMergeView } from '@codemirror/merge';
 import { livePreview, livePreviewHighlight, syncLivePreviewFocus } from './live-preview.js';
 
 const programmatic = Annotation.define();
 
-// Markdown with GitHub extensions (tables, task lists, strikethrough), straight from the
+// Markdown with public table, task-list and autolink extensions, straight from the
 // Lezer parser: @codemirror/lang-markdown would also bundle HTML, CSS and JavaScript
 // support for code blocks, about 150 KB more.
 const markdownFacet = defineLanguageFacet({ commentTokens: { block: { open: '<!--', close: '-->' } } });
 const markdownLanguage = new Language(
   markdownFacet,
-  markdownParser.configure([GFM, { props: [languageDataProp.add({ Document: markdownFacet })] }]),
+  markdownParser.configure([Table, TaskList, Autolink, ...edition.parserExtensions, { props: [languageDataProp.add({ Document: markdownFacet })] }]),
   [],
   'markdown',
 );
@@ -57,7 +58,7 @@ const markdownHighlight = HighlightStyle.define([
   { tag: tags.heading, fontWeight: '700', color: 'var(--accent-strong)' },
   { tag: tags.strong, fontWeight: '700' },
   { tag: tags.emphasis, fontStyle: 'italic' },
-  { tag: tags.strikethrough, textDecoration: 'line-through' },
+  ...edition.highlights,
   { tag: tags.link, color: 'var(--accent)' },
   { tag: tags.url, color: 'var(--accent)', textDecoration: 'underline' },
   { tag: tags.monospace, color: 'var(--accent-strong)' },

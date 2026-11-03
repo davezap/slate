@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.20.1 — 2026-10-31
+
+- A link or image whose address holds a control character or tab, such as `[x](\u0001javascript:…)` with a real U+0001 before `javascript:`, is no longer made a link. Browsers drop those characters before reading the address's scheme, so such a link was a `javascript:` link that the check for `javascript:` missed. It shows as text, like other refused links. (Pages that forbid inline script, such as metatrash.com, never ran it.)
+- `test/hostile.md` is a document full of attempts to run script (script and event-handler tags, `javascript:` links in many spellings, `data:` pages, table cells, tasks, wiki links, Mermaid), and `test/hostile-check.mjs` opens it in the built `slate.js` in Edit, Preview and Source, clicks every link, and fails if anything ran or any script-capable attribute or address is left in the page. It needs Playwright (see the file's first lines).
+
 ## 0.20.0 — 2026-10-30
 
 - Preview and print show a few plain HTML tags written in the text: `<br>` (also `<br/>` and `<br />`) breaks the line, which is the only way to put several lines in one table cell, and `<b>`, `<strong>`, `<i>`, `<em>`, `<u>`, `<s>`, `<del>`, `<ins>`, `<mark>`, `<sub>`, `<sup>`, `<small>`, `<kbd>` and `<code>` work as their names say. Only the bare tags: a tag with attributes, any other tag, and HTML inside backticks stay as typed, so a document still can't run scripts or change the page.

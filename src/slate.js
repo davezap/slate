@@ -1,3 +1,4 @@
+import * as edition from './edition.js';
 import { createSourceEditor } from './source-editor.js';
 import { markWordChanges, planChanges } from './changes.js';
 import { checkAnswers, isFormTemplate, localToday, parseForm, fillMarkdown } from './forms.js';
@@ -20,7 +21,7 @@ import { checkAnswers, isFormTemplate, localToday, parseForm, fillMarkdown } fro
         <div id="formatControls" class="format-controls" aria-label="Markdown formatting">
           <button type="button" data-format="bold" title="Bold (Ctrl+B)"><strong>B</strong></button>
           <button type="button" data-format="italic" title="Italic (Ctrl+I)"><em>I</em></button>
-          <button type="button" data-format="strike" title="Strikethrough"><s>S</s></button>
+          ${edition.toolbar}
           <span class="toolbar-separator"></span>
           <button type="button" data-format="heading" title="Heading">H</button>
           <button type="button" data-format="quote" title="Blockquote">❯</button>
@@ -1126,7 +1127,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     }
     const emphasised = text => text.trim() !== '' && !/^\s|\s$/.test(text);
 
-    for (const [delimiter, tagName, kind] of [['**', 'strong', 'bold'], ['__', 'strong', 'bold'], ['~~', 'del', 'strike']]) {
+    for (const [delimiter, tagName, kind] of [['**', 'strong', 'bold'], ['__', 'strong', 'bold'], ...edition.inlineFormats]) {
       if (!rest.startsWith(delimiter)) continue;
       const close = source.indexOf(delimiter, index + delimiter.length);
       if (close === -1 || !emphasised(source.slice(index + delimiter.length, close))) continue;
@@ -2143,15 +2144,14 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     value = value
       .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
       .replace(/__([^_]+)__/g, '<strong>$1</strong>')
-      .replace(/~~([^~]+)~~/g, '<del>$1</del>')
       .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
       .replace(/(^|[^_])_([^_\n]+)_/g, '$1<em>$2</em>')
       .replace(/  $/g, '<br>');
 
-    return restoreTokens(value, tokens);
+    return restoreTokens(edition.renderInline(value), tokens);
   }
 
-  const INLINE_HTML_TAGS = new Set(['b', 'strong', 'i', 'em', 'u', 's', 'del', 'ins', 'mark', 'sub', 'sup', 'small', 'kbd', 'code']);
+  const INLINE_HTML_TAGS = new Set(['b', 'strong', 'i', 'em', 'u', ...edition.htmlTags, 'ins', 'mark', 'sub', 'sup', 'small', 'kbd', 'code']);
 
   function linkHtml(safe, label, titleAttr) {
     const external = isWebUrl(safe) ? ' class="external-link"' : '';
@@ -2205,6 +2205,9 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
   function safeUrl(url, isImage) {
     const trimmed = String(url).trim();
     if (!trimmed) return '';
+    // Browsers drop control characters and tabs before reading a URL's scheme, so
+    // "\u0001javascript:" is a javascript: link. No real link has them: refuse it.
+    if (/[\u0000-\u001f\u007f]/.test(trimmed)) return '';
     const lower = trimmed.toLowerCase();
     if (lower.startsWith('javascript:') || lower.startsWith('vbscript:')) return '';
     if (lower.startsWith('data:')) {
@@ -2926,7 +2929,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     const selections = {
       bold: ['**', '**', 'bold text'],
       italic: ['*', '*', 'italic text'],
-      strike: ['~~', '~~', 'struck text'],
+      ...edition.selections,
       code: ['`', '`', 'code'],
       link: ['[', '](https://example.com)', 'link text'],
       wikilink: ['[[', ']]', 'Note Name'],
