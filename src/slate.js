@@ -9,7 +9,7 @@ import { checkAnswers, isFormTemplate, localToday, parseForm, fillMarkdown } fro
   // Where slate.js was loaded from, to find mermaid/ next to it.
   const SCRIPT_URL = document.currentScript?.src || '';
 
-  const APP_VERSION = '0.20.0';
+  const APP_VERSION = '0.21.1';
   const DB_NAME = 'slate-markdown-editor-db';
   const DB_VERSION = 1;
   const NODE_STORE = 'documents';
@@ -734,6 +734,19 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
         continue;
       }
 
+      // Quote markers on empty lines keep paragraphs inside the same quote.
+      // Keep the original source together so Preview renders one container and
+      // later blocks still receive their correct source line indexes.
+      if (/^\s*>/.test(line)) {
+        const quote = [];
+        while (index < lines.length && /^\s*>/.test(lines[index])) {
+          quote.push(lines[index]);
+          index += 1;
+        }
+        blocks.push(quote.join('\n'));
+        continue;
+      }
+
       if (isTableStart(lines, index)) {
         const table = [lines[index], lines[index + 1]];
         index += 2;
@@ -787,6 +800,14 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     if (isCommentBlock(source)) {
       block.classList.add('is-comment');
       block.dataset.liveMode = 'comment';
+      return;
+    }
+
+    // Even a one-line quote uses the block renderer: nested quotes and quoted
+    // lists/headings must use the same structure as a multi-paragraph quote.
+    if (/^\s*>/.test(source)) {
+      block.dataset.liveMode = 'raw';
+      block.innerHTML = renderMarkdown(source);
       return;
     }
 
@@ -877,20 +898,6 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
       const content = document.createElement('span');
       content.className = 'live-line-content';
       appendInlineSource(content, list[4], prefix.length);
-      row.appendChild(content);
-      block.appendChild(row);
-      return true;
-    }
-
-    const quote = source.match(/^(\s*>\s?)(.*)$/);
-    if (quote) {
-      const row = document.createElement('blockquote');
-      row.className = 'live-quote-line md-element md-block-element';
-      setMarkdownRange(row, 'quote', 0, source.length, quote[1].length, source.length);
-      row.appendChild(createMarkdownMarker(quote[1]));
-      const content = document.createElement('span');
-      content.className = 'live-line-content';
-      appendInlineSource(content, quote[2], quote[1].length);
       row.appendChild(content);
       block.appendChild(row);
       return true;
@@ -1951,7 +1958,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     new MutationObserver(() => hydrateDiagrams(mountHost)).observe(mountHost, { attributes: true, attributeFilter: ['data-theme'] });
   }
 
-  function renderMarkdown(markdown) {
+  function renderMarkdown(markdown, lineOffset = 0) {
     const lines = markdown.replace(/\r\n?/g, '\n').split('\n');
     const html = [];
     let index = 0;
@@ -1997,12 +2004,13 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
       }
 
       if (/^\s*>/.test(line)) {
+        const quoteStart = index;
         const quoteLines = [];
         while (index < lines.length && /^\s*>/.test(lines[index])) {
           quoteLines.push(lines[index].replace(/^\s*>\s?/, ''));
           index += 1;
         }
-        html.push(`<blockquote>${quoteLines.map(value => `<p>${inlineMarkdown(value)}</p>`).join('')}</blockquote>`);
+        html.push(`<blockquote>${renderMarkdown(quoteLines.join('\n'), lineOffset + quoteStart)}</blockquote>`);
         continue;
       }
 
@@ -2034,7 +2042,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
         while (index < lines.length) {
           const match = lines[index].match(/^\s*((?:[-+*])|(?:\d+\.))\s+(.+)$/);
           if (!match || /\d+\./.test(match[1]) !== ordered) break;
-          const sourceLine = index;
+          const sourceLine = lineOffset + index;
           const task = match[2].match(/^\[([ xX])\]\s*(.*)$/);
           if (task) {
             const checked = task[1].toLowerCase() === 'x';
@@ -2300,10 +2308,14 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     if (!block || block.dataset.videoTask === 'true') return;
 
     const mark = checkbox.checked ? 'x' : ' ';
-    block.dataset.source = (block.dataset.source || '').replace(
-      /^(\s*[-+*]\s+\[)[ xX](\])/,
+    const lines = (block.dataset.source || '').split('\n');
+    const line = Number(checkbox.dataset.line || 0);
+    if (!Number.isInteger(line) || line < 0 || line >= lines.length) return;
+    lines[line] = lines[line].replace(
+      /^((?:[ \t]*>[ \t]?)*[ \t]*[-+*]\s+\[)[ xX](\])/,
       (_, before, after) => `${before}${mark}${after}`
     );
+    block.dataset.source = lines.join('\n');
     persistRenderedDocument();
   }
 

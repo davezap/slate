@@ -1,0 +1,42 @@
+name: Slate release validation
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  component:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Verify release version
+        run: |
+          node <<'JS'
+          const version = require('./package.json').version;
+          if (process.env.GITHUB_REF_TYPE === 'tag' && process.env.GITHUB_REF_NAME !== `v${version}`) {
+            throw new Error('Release tag must match package.json version');
+          }
+          JS
+      - run: npm ci
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - name: Verify blockquotes
+        run: node test/blockquotes-check.mjs
+      - name: Verify Markdown URL and HTML filtering
+        run: node test/hostile-check.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: slate-component
+          path: |
+            slate.js
+            slate.css
+            slate-editor.d.ts
+            mermaid/

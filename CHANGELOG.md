@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.21.1 — 2026-11-04
+
+- Preview groups consecutive quoted lines into one blockquote. A bare `>` separates paragraphs inside that quote instead of creating an empty strip; ordinary wrapped lines form one paragraph. Nested quotes, headings, lists and code are rendered inside their quote container.
+- Quote blocks keep their original source and line counts when switching modes. Quoted task checkboxes update their own source line without losing quote markers or modifying neighbouring tasks.
+- Added `test/blockquotes-check.mjs` for browser regression coverage, including the Metatrash plans announcement and blocked script URLs. David runs builds and tests; none were run while preparing this release. Follow `docs/release-0.21.1.md`.
+
 ## 0.20.1 — 2026-10-31
 
 - A link or image whose address holds a control character or tab, such as `[x](\u0001javascript:…)` with a real U+0001 before `javascript:`, is no longer made a link. Browsers drop those characters before reading the address's scheme, so such a link was a `javascript:` link that the check for `javascript:` missed. It shows as text, like other refused links. (Pages that forbid inline script, such as metatrash.com, never ran it.)
