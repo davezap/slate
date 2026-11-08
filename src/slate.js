@@ -9,7 +9,7 @@ import { checkAnswers, isFormTemplate, localToday, parseForm, fillMarkdown } fro
   // Where slate.js was loaded from, to find mermaid/ next to it.
   const SCRIPT_URL = document.currentScript?.src || '';
 
-  const APP_VERSION = '0.21.1';
+  const APP_VERSION = '0.21.2';
   const DB_NAME = 'slate-markdown-editor-db';
   const DB_VERSION = 1;
   const NODE_STORE = 'documents';

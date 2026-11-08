@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.21.2 — 2026-11-08
+
+- Tables preserve whole words when allocating column widths, so short keys such as `name`, `when` and `every` are no longer squeezed into letter fragments beside long descriptions. Oversized words and URLs can still wrap. Applies to rendered editing, Preview and print. See docs/release-0.21.2.md. David runs builds and acceptance checks; none run by Codex.
+
 ## 0.21.1 — 2026-11-04
 
 - Preview groups consecutive quoted lines into one blockquote. A bare `>` separates paragraphs inside that quote instead of creating an empty strip; ordinary wrapped lines form one paragraph. Nested quotes, headings, lists and code are rendered inside their quote container.

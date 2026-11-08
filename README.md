@@ -1,4 +1,4 @@
-# Slate Markdown Editor Components — 0.21.1
+# Slate Markdown Editor Components — 0.21.2
 
 This project is the reusable Slate Markdown editor extracted from the current Wire integration.
 
@@ -8,7 +8,7 @@ Edit and Source are one [CodeMirror 6](https://codemirror.net/) editor: Source s
 
 ## What is included
 
-- `slate.js` — complete Slate 0.21.1 editor/component, built from `src/` (don't edit it by hand).
+- `slate.js` — complete Slate 0.21.2 editor/component, built from `src/` (don't edit it by hand).
 - `src/slate.js` — the editor source; `src/source-editor.js` — the CodeMirror editor behind Edit and Source; `src/live-preview.js` — Edit mode's Live Preview drawing; `src/changes.js` — the block and word comparison behind Show Changes; `src/forms.js` — form templates: fields, answer checks and fill mode's text.
 - `slate.css` — generic scoped component styling.
 - `mermaid/` — [Mermaid](https://mermaid.js.org/) for diagrams, built from `src/mermaid-entry.js`: `mermaid.js` plus a chunk per diagram type. Hosts copy the folder next to `slate.js`; it is loaded only when a document has a diagram (see **Diagrams**).

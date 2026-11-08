@@ -550,7 +550,13 @@
 .slate-editor-host .markdown-body li.task-item{ list-style: none; margin-left: -1.35em; }
 .slate-editor-host .markdown-body .task-checkbox{ margin-right: .55em; accent-color: var(--accent); cursor: pointer; }
 .slate-editor-host .markdown-body hr{ border: 0; border-top: 1px solid var(--border); margin: 2em 0; }
-.slate-editor-host .markdown-body table{ width: 100%; border-collapse: collapse; margin: 1em 0; font-size: .94em; }
+.slate-editor-host .markdown-body table{
+  width: 100%; border-collapse: collapse; margin: 1em 0; font-size: .94em;
+  /* Keep whole words in automatic column sizing. `anywhere`, inherited from
+     the document/live block, lets a description squeeze short keys to letters.
+     `break-word` still wraps oversized URLs when space actually runs out. */
+  overflow-wrap: break-word;
+}
 .slate-editor-host .markdown-body th, .slate-editor-host .markdown-body td{ border: 1px solid var(--border); padding: .5em .7em; text-align: left; }
 .slate-editor-host .markdown-body th{ background: var(--panel-muted); }
 .slate-editor-host .markdown-body .attachment-link::before{ content: "📎 "; }
