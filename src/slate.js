@@ -1,7 +1,7 @@
 import * as edition from './edition.js';
 import { createSourceEditor } from './source-editor.js';
 import { markWordChanges, planChanges } from './changes.js';
-import { checkAnswers, isFormTemplate, localToday, parseForm, fillMarkdown } from './forms.js';
+import { askedFields, checkAnswers, defaultAnswer, flowHidden, hiddenLines, isFormTemplate, localToday, parseForm, fillMarkdown, photoLimit, showIfText } from './forms.js';
 
 (() => {
   'use strict';
@@ -9,7 +9,7 @@ import { checkAnswers, isFormTemplate, localToday, parseForm, fillMarkdown } fro
   // Where slate.js was loaded from, to find mermaid/ next to it.
   const SCRIPT_URL = document.currentScript?.src || '';
 
-  const APP_VERSION = '0.21.2';
+  const APP_VERSION = '0.22.0';
   const DB_NAME = 'slate-markdown-editor-db';
   const DB_VERSION = 1;
   const NODE_STORE = 'documents';
@@ -455,6 +455,7 @@ import { checkAnswers, isFormTemplate, localToday, parseForm, fillMarkdown } fro
     el.changesPrevious.addEventListener('click', () => goToChange(-1));
     el.changesNext.addEventListener('click', () => goToChange(1));
     el.changesPreview.addEventListener('click', handlePreviewClick);
+    el.fillForm.addEventListener('click', handlePhotoClick);
     el.fillForm.addEventListener('click', handlePreviewClick);
     el.fillForm.addEventListener('input', handleFillInput);
     el.fillForm.addEventListener('change', handleFillInput);
@@ -3527,7 +3528,9 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     const readOnly = Boolean(options.readOnly);
     if (inPreview && getWorkspaceMode() !== 'preview') await applyWorkspaceModeNow('preview', { allowReadOnly: true });
     if (state.fill) endFill('restart', { notify: false });
-    state.fill = { form, answers: {}, problems: new Map(), generation: 0, uid: uuid().slice(0, 8), busy: false, inPreview, readOnly };
+    // person ({ name, email }) fills in the @name and @email defaults (Metatrash 0.95.19).
+    const person = options.person && typeof options.person === 'object' ? { name: String(options.person.name || ''), email: String(options.person.email || '') } : {};
+    state.fill = { form, answers: {}, problems: new Map(), generation: 0, uid: uuid().slice(0, 8), busy: false, inPreview, readOnly, person, serverFills: new Set(), hiddenKey: '' };
     setFillAnswers(options.answers);
     el.fillTitle.textContent = fillTitle(state.fill);
     el.fillSubmit.textContent = String(options.submitLabel || 'Send');
@@ -3550,11 +3553,43 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     if (!fill) return;
     const given = answers && typeof answers === 'object' ? answers : {};
     fill.answers = {};
+    fill.serverFills = new Set();
     fill.form.fields.forEach(field => {
-      const value = given[field.name];
-      if (field.multi) fill.answers[field.name] = Array.isArray(value) ? value.map(String).filter(v => field.options.includes(v)) : [];
+      let value = given[field.name];
+      // A field not answered yet starts at its default; @name or @email the host couldn't say is
+      // left to the server, which fills it in when the answer is left out.
+      if (value === undefined && field.default) {
+        value = defaultAnswer(field, fill.person);
+        if (value === null) {
+          fill.serverFills.add(field.name);
+          value = '';
+        }
+      }
+      // Photos are data URLs taken here; paths from a filed copy can't be sent again.
+      if (field.type === 'photo') fill.answers[field.name] = Array.isArray(value) ? value.filter(v => typeof v === 'string' && /^data:image\/(jpeg|png);base64,/.test(v)).slice(0, photoLimit(field)) : [];
+      else if (field.multi) fill.answers[field.name] = Array.isArray(value) ? value.map(String).filter(v => field.options.includes(v)) : [];
       else fill.answers[field.name] = value === undefined || value === null || Array.isArray(value) ? '' : String(value);
     });
+  }
+
+  /** The fields asked now (show-if) and the body lines of those that are not. */
+  function fillVisibility(fill) {
+    // A field the server fills in counts as answered.
+    const answers = { ...fill.answers };
+    for (const name of serverFilled(fill)) answers[name] = '@';
+    const today = localToday();
+    const asked = askedFields(fill.form, answers, today);
+    const hidden = hiddenLines(fill.form, asked);
+    // Auto flow holds back the steps after the first one not finished.
+    const flow = flowHidden(fill.form, fill.answers, today, asked, { serverFills: serverFilled(fill) });
+    for (const line of flow.hidden) hidden.add(line);
+    const shown = new Set([...asked].filter(name => !flow.hidden.has(fill.form.fields.find(f => f.name === name).line)));
+    return { asked, shown, hidden, waiting: flow.waiting, key: [...hidden].sort((a, b) => a - b).join(',') };
+  }
+
+  /** The fields the server fills in: @name or @email defaults still blank. */
+  function serverFilled(fill) {
+    return new Set([...fill.serverFills].filter(name => !String(fill.answers[name] ?? '').trim()));
   }
 
   // The template changed while it was being filled in: draw the new one, keeping the answers.
@@ -3582,7 +3617,10 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     const generation = ++fill.generation;
     const pane = el.fillForm;
     destroyMediaPlayers(pane);
-    const { markdown, hints } = fillMarkdown(fill.form);
+    const visibility = fillVisibility(fill);
+    fill.hiddenKey = visibility.key;
+    let { markdown, hints } = fillMarkdown(fill.form, visibility.hidden);
+    if (visibility.waiting) markdown += '\n\n*The next step appears when this one is done.*';
     const fragment = document.createDocumentFragment();
     splitMarkdownIntoLiveBlocks(markdown).forEach(source => fragment.appendChild(createLiveBlock(source)));
     pane.replaceChildren(fragment);
@@ -3677,6 +3715,8 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
         group.appendChild(option(field.multi ? 'checkbox' : 'radio', id, text, text, checked));
       });
       wrap.appendChild(group);
+    } else if (field.type === 'photo') {
+      wrap.appendChild(createPhotoPicker(fill, field, id, label, describe));
     } else if (field.type === 'sign') {
       const item = option('checkbox', id, 'true', 'Sign: your name and the time are added when you send it', value === 'true');
       item.classList.add('form-sign');
@@ -3719,12 +3759,160 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
       control.className = 'form-control';
       control.setAttribute('aria-label', label);
       if (field.placeholder && field.type !== 'select') control.placeholder = field.placeholder;
+      else if (fill.serverFills.has(field.name)) control.placeholder = field.default === '@email' ? 'Your email, added when sent' : 'Your name, added when sent';
       control.value = value;
       describe(control);
       wrap.appendChild(control);
     }
     wrap.appendChild(error);
     return wrap;
+  }
+
+  // Photo fields (Metatrash 0.95.19): Take photo (the camera, on a phone) and Choose photo add
+  // pictures, scaled here to at most PHOTO_SIDE pixels on the long side and made JPEG, which
+  // also leaves out where and on what they were taken. Each shows as a thumbnail to remove.
+  const PHOTO_SIDE = 1600;
+  const PHOTO_QUALITY = 0.85;
+
+  function createPhotoPicker(fill, field, id, label, describe) {
+    const box = document.createElement('span');
+    box.className = 'form-photos';
+    box.setAttribute('role', 'group');
+    box.setAttribute('aria-label', label);
+    describe(box);
+    const photos = fill.answers[field.name] || [];
+    photos.forEach((src, index) => {
+      const item = document.createElement('span');
+      item.className = 'form-photo';
+      const img = document.createElement('img');
+      img.src = src;
+      img.alt = photos.length > 1 ? `${label} ${index + 1}` : label;
+      item.appendChild(img);
+      if (!fill.readOnly) {
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'form-photo-remove';
+        remove.dataset.photoRemove = String(index);
+        remove.setAttribute('aria-label', `Remove ${img.alt}`);
+        remove.title = 'Remove';
+        remove.textContent = '×';
+        item.appendChild(remove);
+      }
+      box.appendChild(item);
+    });
+    const limit = photoLimit(field);
+    if (photos.length < limit) {
+      const add = (text, capture) => {
+        const button = document.createElement('label');
+        button.className = 'form-photo-add';
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*';
+        input.dataset.photoInput = 'true';
+        if (capture) input.setAttribute('capture', 'environment');
+        else if (limit - photos.length > 1) input.multiple = true;
+        if (fill.readOnly) input.disabled = true;
+        const caption = document.createElement('span');
+        caption.textContent = text;
+        button.append(input, caption);
+        return button;
+      };
+      // A phone offers its camera; elsewhere Take photo would only choose a file too.
+      const phone = typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
+      if (phone) box.appendChild(add('Take photo', true));
+      box.appendChild(add(photos.length ? 'Add photo' : 'Choose photo', false));
+    }
+    if (!photos.length && fill.readOnly) {
+      const none = document.createElement('span');
+      none.className = 'form-photo-none';
+      none.textContent = 'Photo';
+      box.appendChild(none);
+    }
+    box.id = id;
+    return box;
+  }
+
+  /** A picture file as a JPEG data URL, at most PHOTO_SIDE pixels on its long side. */
+  async function scalePhoto(file) {
+    let source;
+    let width;
+    let height;
+    try {
+      source = await createImageBitmap(file, { imageOrientation: 'from-image' });
+      ({ width, height } = source);
+    } catch {
+      const url = URL.createObjectURL(file);
+      try {
+        source = await new Promise((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = () => reject(new Error('This picture can’t be read.'));
+          img.src = url;
+        });
+        width = source.naturalWidth;
+        height = source.naturalHeight;
+      } finally {
+        setTimeout(() => URL.revokeObjectURL(url), 0);
+      }
+    }
+    if (!width || !height) throw new Error('This picture can’t be read.');
+    const scale = Math.min(1, PHOTO_SIDE / Math.max(width, height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(width * scale));
+    canvas.height = Math.max(1, Math.round(height * scale));
+    const context = canvas.getContext('2d');
+    context.fillStyle = '#fff';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(source, 0, 0, canvas.width, canvas.height);
+    source.close?.();
+    return canvas.toDataURL('image/jpeg', PHOTO_QUALITY);
+  }
+
+  async function addPhotos(field, input) {
+    const fill = state.fill;
+    const files = [...(input.files || [])];
+    input.value = '';
+    if (!fill || fill.readOnly || !files.length) return;
+    const room = photoLimit(field) - (fill.answers[field.name] || []).length;
+    const added = [];
+    let failed = false;
+    for (const file of files.slice(0, Math.max(0, room))) {
+      try {
+        added.push(await scalePhoto(file));
+      } catch {
+        failed = true;
+      }
+    }
+    if (state.fill !== fill) return;
+    setPhotos(field, [...(fill.answers[field.name] || []), ...added]);
+    if (failed) {
+      fill.problems.set(field.name, 'A picture couldn’t be read; try another, or a JPEG or PNG.');
+      showFillProblems();
+    } else if (files.length > room) {
+      fill.problems.set(field.name, room === 1 ? 'Only one more photo fits here.' : `Only ${room} more photos fit here.`);
+      showFillProblems();
+    }
+  }
+
+  function setPhotos(field, photos) {
+    const fill = state.fill;
+    fill.answers[field.name] = photos.slice(0, photoLimit(field));
+    if (fill.problems.delete(field.name) && !fill.problems.size && el.fillStatus.dataset.kind === 'error') setFillStatus('');
+    dispatchEditorEvent('slate:form-input', { name: field.name, answers: fillAnswers() });
+    void redrawFill(field.name, null);
+  }
+
+  function handlePhotoClick(event) {
+    const button = event.target.closest('[data-photo-remove]');
+    const wrap = button?.closest('.form-field');
+    const fill = state.fill;
+    if (!button || !wrap || !fill || fill.readOnly) return;
+    event.preventDefault();
+    const field = fill.form.fields.find(f => f.name === wrap.dataset.field);
+    if (!field) return;
+    const photos = [...(fill.answers[field.name] || [])];
+    photos.splice(Number(button.dataset.photoRemove), 1);
+    setPhotos(field, photos);
   }
 
   function readFieldValue(wrap, field) {
@@ -3742,6 +3930,10 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     if (!fill || !wrap || fill.readOnly) return;
     const field = fill.form.fields.find(f => f.name === wrap.dataset.field);
     if (!field) return;
+    if (field.type === 'photo') {
+      if (event.type === 'change' && event.target.dataset.photoInput) void addPhotos(field, event.target);
+      return;
+    }
     const value = readFieldValue(wrap, field);
     const before = JSON.stringify(fill.answers[field.name]);
     fill.answers[field.name] = value;
@@ -3749,19 +3941,63 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
       showFillProblems();
       if (!fill.problems.size && el.fillStatus.dataset.kind === 'error') setFillStatus('');
     }
-    if (JSON.stringify(value) !== before) dispatchEditorEvent('slate:form-input', { name: field.name, answers: fillAnswers() });
+    if (JSON.stringify(value) !== before) {
+      dispatchEditorEvent('slate:form-input', { name: field.name, answers: fillAnswers() });
+      // An answer that shows or hides questions (show-if) draws the form again.
+      if (fillVisibility(fill).key !== fill.hiddenKey) void redrawFill(field.name, event.target);
+    }
   }
 
+  /** Draws the form again, keeping the person in the control they were using. */
+  async function redrawFill(name, target) {
+    const fill = state.fill;
+    if (!fill) return;
+    const scroll = el.fillForm.scrollTop;
+    const caret = typeof target?.selectionStart === 'number' ? [target.selectionStart, target.selectionEnd] : null;
+    const value = target?.type === 'radio' || target?.type === 'checkbox' ? target.value : null;
+    await renderFill();
+    if (state.fill !== fill) return;
+    el.fillForm.scrollTop = scroll;
+    const wrap = [...el.fillForm.querySelectorAll('.form-field')].find(w => w.dataset.field === name);
+    const control = value !== null
+      ? [...(wrap?.querySelectorAll('input') ?? [])].find(input => input.value === value)
+      : wrap?.querySelector('input:not([type="file"]), textarea, select, .form-photo-add input, .form-photo-remove');
+    if (!control) return;
+    control.focus({ preventScroll: true });
+    if (caret && typeof control.setSelectionRange === 'function') {
+      try { control.setSelectionRange(caret[0], caret[1]); } catch { /* not a text control */ }
+    }
+  }
+
+  /** The answers to send: only the questions asked, without those the server fills in. */
+  function submitAnswers() {
+    const fill = state.fill;
+    if (!fill) return {};
+    const { asked } = fillVisibility(fill);
+    const leave = serverFilled(fill);
+    const out = {};
+    for (const field of fill.form.fields) {
+      if (asked.has(field.name) && !leave.has(field.name)) out[field.name] = JSON.parse(JSON.stringify(fill.answers[field.name]));
+    }
+    return out;
+  }
+
+  /** The answers as kept for a draft: photos are left out, as they are large; only Send takes them. */
   function fillAnswers() {
-    if (!state.fill) return {};
-    return JSON.parse(JSON.stringify(state.fill.answers));
+    const fill = state.fill;
+    if (!fill) return {};
+    const answers = JSON.parse(JSON.stringify(fill.answers));
+    for (const field of fill.form.fields) if (field.type === 'photo') answers[field.name] = [];
+    return answers;
   }
 
   /** Checks every answer as the server will; shows the problems and returns them. */
   function checkFill(options = {}) {
     const fill = state.fill;
     if (!fill) return [];
-    const problems = checkAnswers(fill.form, fill.answers, localToday());
+    const { shown } = fillVisibility(fill);
+    // Auto flow: a step held back can't show its problems; the steps before it say what's missing.
+    const problems = checkAnswers(fill.form, fill.answers, localToday(), { serverFills: serverFilled(fill) }).filter(p => shown.has(p.name));
     fill.problems = new Map(problems.map(p => [p.name, p.message]));
     showFillProblems({ focus: options.focus !== false });
     return problems;
@@ -3820,7 +4056,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
       return;
     }
     setFillStatus('');
-    dispatchEditorEvent('slate:form-submit', { form: fill.form.form, title: fill.form.title, answers: fillAnswers() });
+    dispatchEditorEvent('slate:form-submit', { form: fill.form.form, title: fill.form.title, answers: submitAnswers() });
   }
 
   function publicForm(form) {
@@ -3830,7 +4066,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
       title: form.title,
       submitTo: form.submitTo,
       error: form.error,
-      fields: form.fields.map(f => ({ type: f.type, name: f.name, label: fieldLabel(f), required: f.required, multi: f.multi, options: [...f.options] })),
+      fields: form.fields.map(f => ({ type: f.type, name: f.name, label: fieldLabel(f), required: f.required, multi: f.multi, options: [...f.options], default: f.default, showIf: f.showIf ? showIfText(f.showIf) : '' })),
     };
   }
 

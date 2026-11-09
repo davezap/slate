@@ -1,4 +1,4 @@
-# Slate Markdown Editor Components — 0.21.2
+# Slate Markdown Editor Components — 0.22.0
 
 This project is the reusable Slate Markdown editor extracted from the current Wire integration.
 
@@ -8,7 +8,7 @@ Edit and Source are one [CodeMirror 6](https://codemirror.net/) editor: Source s
 
 ## What is included
 
-- `slate.js` — complete Slate 0.21.2 editor/component, built from `src/` (don't edit it by hand).
+- `slate.js` — complete Slate 0.22.0 editor/component, built from `src/` (don't edit it by hand).
 - `src/slate.js` — the editor source; `src/source-editor.js` — the CodeMirror editor behind Edit and Source; `src/live-preview.js` — Edit mode's Live Preview drawing; `src/changes.js` — the block and word comparison behind Show Changes; `src/forms.js` — form templates: fields, answer checks and fill mode's text.
 - `slate.css` — generic scoped component styling.
 - `mermaid/` — [Mermaid](https://mermaid.js.org/) for diagrams, built from `src/mermaid-entry.js`: `mermaid.js` plus a chunk per diagram type. Hosts copy the folder next to `slate.js`; it is loaded only when a document has a diagram (see **Diagrams**).
@@ -236,6 +236,8 @@ Slate doesn't keep versions, so the host decides what to compare with. `setChang
 ### Forms (fill mode)
 
 A form template is a Markdown document whose front matter has `form`, `title` and `submitTo`, with fields as `{{type name=… …}}` tokens: `text`, `textarea`, `number`, `date`, `time`, `email`, `phone`, `choice` (with `multi` for several), `select`, `yesno` and `sign`. A choice or select takes its options from the list right below it. Metatrash 0.49.0 checks and files submissions; its `docs/forms.md` describes the syntax in full, and `src/forms.js` here parses it the same way.
+
+Since 0.22.0 (Metatrash Core 0.95.19) a field may take `default=` (text, or `@name`, `@email`, `@today`, `@now`) and `show-if=` (`field`, `!field`, `field=A|B`, `field!=A`, or `> >= < <=` on numbers, dates and times). Fill mode starts each field at its default, using `startFill({ person: { name, email } })` for `@name` and `@email`; one the host doesn't give stays blank with a note, and is left out of the answers so the server fills it in. A field's `show-if` shows or hides its block (its paragraph, or its own list item or table row, with a choice's options) as the answers change, and Send checks and hands over only the questions asked. With `autoFlow: true` in the front matter, the headings are steps: each step after the first appears once the steps before it are complete. A `{{photo name=… max=N}}` field (up to 10 photos, 20 in a form) shows Take photo (on a phone, the camera) and Choose photo; each picture is scaled to at most 1600 pixels on its long side and made a JPEG, which leaves out where it was taken, and shows as a thumbnail to remove. Send hands a photo field's answer over as a list of data URLs; drafts leave photos out. `test/forms-flow-check.mjs` checks `src/forms.js` against the same template as Metatrash's tests.
 
 ```javascript
 if (editor.isForm()) {

@@ -4,7 +4,7 @@
 // text. Metatrash's internal/service/forms.go parses the same syntax and has the final say
 // on every answer; keep the two in step (see Metatrash's docs/forms.md).
 
-export const FIELD_TYPES = ['text', 'textarea', 'number', 'date', 'time', 'email', 'phone', 'choice', 'select', 'yesno', 'sign'];
+export const FIELD_TYPES = ['text', 'textarea', 'number', 'date', 'time', 'email', 'phone', 'choice', 'select', 'yesno', 'sign', 'photo'];
 
 const MAX_FIELDS = 200;
 const MAX_OPTIONS = 100;
@@ -12,6 +12,9 @@ const MAX_OPTION_TEXT = 200;
 const MAX_LABEL = 200;
 const MAX_PATTERN = 500;
 const MAX_TITLE = 200;
+// Photo fields (Metatrash 0.95.19): up to 10 photos a field, 20 a form.
+const MAX_FIELD_PHOTOS = 10;
+const MAX_FORM_PHOTOS = 20;
 
 const FORM_NAME = /^[a-z0-9][a-z0-9-]{0,47}$/;
 const FIELD_NAME = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
@@ -27,7 +30,7 @@ const NUMBER = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
 const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
 const CONTROL_MULTILINE = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/;
 
-const COMMON_ATTRIBUTES = new Set(['name', 'label', 'required', 'placeholder']);
+const COMMON_ATTRIBUTES = new Set(['name', 'label', 'required', 'placeholder', 'default', 'show-if']);
 const TYPE_ATTRIBUTES = {
   text: ['min', 'max', 'pattern'],
   textarea: ['min', 'max', 'rows'],
@@ -40,6 +43,7 @@ const TYPE_ATTRIBUTES = {
   select: [],
   yesno: [],
   sign: [],
+  photo: ['max'],
 };
 
 // Placeholders for fields and comment hints while fill mode renders the document; private
@@ -234,6 +238,9 @@ function checkFieldAttributes(field) {
         if (Object.hasOwn(a, key) && !TIME.test(a[key])) throw new Error(`${key} must be a time such as 09:30`);
       }
       break;
+    case 'photo':
+      whole('max', 1, MAX_FIELD_PHOTOS);
+      break;
     case 'choice':
       field.multi = a.multi === 'true';
       if (Object.hasOwn(a, 'multi') && a.multi !== 'true') throw new Error('multi takes no value');
@@ -269,8 +276,9 @@ function fieldOptions(body, line) {
 export function parseForm(markdown) {
   const { keys, body, bodyStart } = splitFrontMatter(markdown);
   if (!isFormKeys(keys)) return null;
-  const result = { form: keys.form, title: keys.title || keys.form, submitTo: keys.submitTo || '', fields: [], error: '', body, bodyStart };
+  const result = { form: keys.form, title: keys.title || keys.form, submitTo: keys.submitTo || '', fields: [], error: '', body, bodyStart, autoFlow: keys.autoFlow === 'true', steps: [] };
   const fail = message => { result.error = `This form template has a mistake: ${message}`; return result; };
+  if (Object.hasOwn(keys, 'autoFlow') && keys.autoFlow !== 'true' && keys.autoFlow !== 'false') return fail('autoFlow is true or false.');
   if (!FORM_NAME.test(result.form)) return fail('form must be a short name of lowercase letters, digits and hyphens, such as leave-request.');
   if (runeLength(result.title) > MAX_TITLE || CONTROL.test(result.title)) return fail(`title is limited to ${MAX_TITLE} characters.`);
   if (!result.submitTo) return fail('submitTo is missing: name the space and folder that receive the answers, such as owner/hr-review/leave/.');
@@ -282,14 +290,14 @@ export function parseForm(markdown) {
       if (problem) return;
       const at = message => { problem = `line ${line + 1}: ${message}`; };
       const type = token.kind.toLowerCase();
-      if (!FIELD_TYPES.includes(type)) return at(`{{${type}}} is not a field type; use text, textarea, number, date, time, email, phone, choice, select, yesno or sign.`);
+      if (!FIELD_TYPES.includes(type)) return at(`{{${type}}} is not a field type; use text, textarea, number, date, time, email, phone, choice, select, yesno, sign or photo.`);
       let attrs;
       try {
         attrs = parseAttributes(token.attrs);
       } catch (error) {
         return at(`{{${type}}}: ${error.message}.`);
       }
-      const field = { type, name: attrs.name || '', label: attrs.label || '', required: false, multi: false, options: [], placeholder: attrs.placeholder || '', attrs, line, firstOption: -1, lastOption: -1, pattern: null };
+      const field = { type, name: attrs.name || '', label: attrs.label || '', required: false, multi: false, options: [], placeholder: attrs.placeholder || '', default: attrs.default ?? '', showIf: null, attrs, line, firstOption: -1, lastOption: -1, hideFrom: -1, hideTo: -1, pattern: null };
       for (const [key, value] of Object.entries(attrs)) {
         if (key === 'required') {
           if (value !== 'true') return at('required takes no value.');
@@ -327,12 +335,276 @@ export function parseForm(markdown) {
   });
   if (problem) return fail(problem);
   if (!result.fields.length) return fail('it has no fields; add one such as {{text name=full_name required}}.');
+  const flow = readShowIf(result.fields, body);
+  if (flow) return fail(flow);
+  const photos = result.fields.reduce((n, f) => n + (f.type === 'photo' ? photoLimit(f) : 0), 0);
+  if (photos && keys.quiz === 'true') return fail("a quiz can't ask for photos.");
+  if (photos > MAX_FORM_PHOTOS) return fail(`a form can ask for at most ${MAX_FORM_PHOTOS} photos in all (the max of its photo fields added up).`);
+  if (result.autoFlow) result.steps = formSteps(body, result.fields);
   return result;
+}
+
+/**
+ * Auto flow (Metatrash 0.95.19): the form's steps are its headings. Each step runs from a heading
+ * to the next; what comes before the first heading is always shown. { start, end, fields }.
+ */
+function formSteps(body, fields) {
+  const starts = [0];
+  scanLines(body, (index, line, fence) => {
+    if (!fence && index > 0 && HEADING.test(line)) starts.push(index);
+  });
+  const steps = starts.map((start, i) => ({ start, end: (starts[i + 1] ?? body.length) - 1, fields: [] }));
+  for (const field of fields) {
+    const step = [...steps].reverse().find(s => s.start <= field.line);
+    step.fields.push(field.name);
+    field.step = steps.indexOf(step);
+  }
+  return steps;
+}
+
+/**
+ * The body lines auto flow holds back: every step after the first one not yet complete (an asked
+ * field still has a problem). Returns { hidden, waiting }, waiting when a step is held back.
+ */
+export function flowHidden(form, answers, today, asked, options = {}) {
+  const hidden = new Set();
+  if (!form.autoFlow) return { hidden, waiting: false };
+  const byName = new Map(form.fields.map(f => [f.name, f]));
+  for (let i = 0; i < form.steps.length - 1; i += 1) {
+    const step = form.steps[i];
+    const done = step.fields.every(name => !asked.has(name) || options.serverFills?.has(name) || !checkAnswer(byName.get(name), answers?.[name], today));
+    if (!done) {
+      for (const later of form.steps.slice(i + 1)) for (let line = later.start; line <= later.end; line += 1) hidden.add(line);
+      return { hidden, waiting: true };
+    }
+  }
+  return { hidden, waiting: false };
+}
+
+// Guided forms (Metatrash 0.95.19): default= fills an answer in before the person starts (text,
+// or @name, @email, @today, @now), and show-if= asks a field's block (its paragraph, or its own
+// line in a list or table, with a choice's options) only when an earlier answer calls for it.
+
+const DEFAULT_TOKENS = {
+  '@name': ['text', 'textarea'],
+  '@email': ['text', 'textarea', 'email'],
+  '@today': ['text', 'textarea', 'date'],
+  '@now': ['text', 'textarea', 'time'],
+};
+
+function checkDefault(field) {
+  if (!Object.hasOwn(field.attrs, 'default')) return '';
+  const d = field.attrs.default;
+  if (field.type === 'sign') return "can't have a default: only the person signs";
+  if (field.type === 'photo') return "can't have a default: photos are taken or chosen when the form is filled in";
+  if (d.startsWith('@')) {
+    if (!Object.hasOwn(DEFAULT_TOKENS, d)) return `default ${d} is not one of @name, @email, @today or @now`;
+    return DEFAULT_TOKENS[d].includes(field.type) ? '' : `can't take default ${d}`;
+  }
+  if (!d) return 'default needs a value';
+  switch (field.type) {
+    case 'choice':
+    case 'select':
+      for (const v of field.multi ? d.split('|') : [d]) {
+        if (!field.options.includes(v.trim())) return `default "${v.trim()}" is not one of its options`;
+      }
+      return '';
+    case 'yesno': return d === 'Yes' || d === 'No' ? '' : 'default must be Yes or No';
+    case 'number': return NUMBER.test(d) && Number.isFinite(Number(d)) ? '' : 'default must be a number';
+    case 'date': return validDate(d) ? '' : 'default must be a date such as 2026-01-31, or @today';
+    case 'time': return TIME.test(d) ? '' : 'default must be a time such as 09:30, or @now';
+    case 'email': return EMAIL.test(d) ? '' : 'default must be an email address, or @email';
+    default: return '';
+  }
+}
+
+const SHOW_IF = /^\s*(!?)\s*([A-Za-z][A-Za-z0-9_]{0,63})\s*(?:(!=|>=|<=|=|>|<)([\s\S]*))?$/;
+
+/** Reads a show-if value: name (answered), !name (not answered), or name, an operator and values (| between). */
+export function parseShowIf(text) {
+  const m = String(text).match(SHOW_IF);
+  if (!m) throw new Error('show-if must be a field\'s name and what its answer must be, such as show-if="damaged=Yes"');
+  const cond = { field: m[2], op: m[3] || '', values: [] };
+  if (!m[3]) cond.op = m[1] ? 'unanswered' : 'answered';
+  else if (m[1]) throw new Error('show-if takes ! only before a name on its own, such as show-if="!phone"');
+  else {
+    for (const raw of m[4].split('|')) {
+      const v = raw.trim();
+      if (!v) throw new Error(`show-if needs a value after ${m[3]}`);
+      cond.values.push(v);
+    }
+    if (cond.values.length > 1 && cond.op !== '=' && cond.op !== '!=') throw new Error('show-if takes several values (with |) only after = or !=');
+  }
+  return cond;
+}
+
+export function showIfText(cond) {
+  if (cond.op === 'answered') return cond.field;
+  if (cond.op === 'unanswered') return `!${cond.field}`;
+  return cond.field + cond.op + cond.values.join('|');
+}
+
+function checkShowIf(cond, on) {
+  if (on.type === 'sign') return "show-if can't depend on a signature";
+  if (on.type === 'photo') return "show-if can't depend on a photo";
+  if (cond.op === 'answered' || cond.op === 'unanswered') return '';
+  if (['>', '>=', '<', '<='].includes(cond.op) && !['number', 'date', 'time'].includes(on.type)) {
+    return `show-if compares with ${cond.op} only numbers, dates and times; ${on.name} is ${on.type}`;
+  }
+  for (const v of cond.values) {
+    if ((on.type === 'choice' || on.type === 'select') && !on.options.includes(v)) return `show-if: "${v}" is not one of ${on.name}'s options`;
+    if (on.type === 'yesno' && v !== 'Yes' && v !== 'No') return `show-if: ${on.name} is answered Yes or No`;
+    if (on.type === 'number' && !Number.isFinite(Number(v))) return `show-if: ${on.name} is a number, and "${v}" is not`;
+    if (on.type === 'date' && v !== 'today' && !validDate(v)) return `show-if: ${on.name} is a date, such as 2026-01-31 or today`;
+    if (on.type === 'time' && !TIME.test(v)) return `show-if: ${on.name} is a time, such as 09:30`;
+  }
+  return '';
+}
+
+function compareValue(on, got, want, today) {
+  if (on.type === 'number') {
+    const a = Number(got);
+    const b = Number(want);
+    if (!NUMBER.test(got) || !Number.isFinite(a) || !Number.isFinite(b)) return null;
+    return a < b ? -1 : a > b ? 1 : 0;
+  }
+  const w = on.type === 'date' && want === 'today' ? today : want;
+  return got < w ? -1 : got > w ? 1 : 0;
+}
+
+/** Whether cond is met by answer, the named field's answer (blank when it was not asked). */
+export function showIfHolds(cond, on, answer, today) {
+  const given = Array.isArray(answer) ? answer : (String(answer ?? '').trim() ? [String(answer).trim()] : []);
+  if (cond.op === 'answered') return given.length > 0;
+  if (cond.op === 'unanswered') return given.length === 0;
+  if (cond.op === '=' || cond.op === '!=') {
+    const same = (g, v) => (on.type === 'number' || on.type === 'date' ? compareValue(on, g, v, today) === 0 : g === v);
+    const match = given.some(g => cond.values.some(v => same(g, v)));
+    return cond.op === '=' ? match : !match;
+  }
+  if (given.length !== 1) return false;
+  const cmp = compareValue(on, given[0], cond.values[0], today);
+  if (cmp === null) return false;
+  return { '>': cmp > 0, '>=': cmp >= 0, '<': cmp < 0, '<=': cmp <= 0 }[cond.op];
+}
+
+const HEADING = /^ {0,3}#{1,6}(\s|$)/;
+const LIST_ITEM = /^\s*(?:[-*+]|\d+[.)])\s/;
+
+/** The body lines a field's show-if hides: its paragraph, or its own list item or table row, and a choice's options. */
+function fieldBlock(body, field) {
+  const own = line => line.trim().startsWith('|') || LIST_ITEM.test(line);
+  const stops = line => !line.trim() || HEADING.test(line) || FENCE.test(line) || own(line);
+  let start = field.line;
+  let end = field.line;
+  if (!own(body[field.line])) {
+    while (start > 0 && !stops(body[start - 1])) start -= 1;
+    while (end + 1 < body.length && !stops(body[end + 1])) end += 1;
+  }
+  return { start, end: Math.max(end, field.lastOption) };
+}
+
+/** Checks every field's default and show-if; returns the first mistake, or ''. */
+function readShowIf(fields, body) {
+  const blocks = [];
+  const at = [];
+  for (let i = 0; i < fields.length; i += 1) {
+    const field = fields[i];
+    const where = `line ${field.line + 1}: `;
+    const wrong = checkDefault(field);
+    if (wrong) return `${where}${field.name} ${wrong}.`;
+    const { start, end } = fieldBlock(body, field);
+    let block = blocks.find(b => start <= b.end && end >= b.start);
+    if (!block) {
+      block = { start, end, cond: null, by: '' };
+      blocks.push(block);
+    }
+    block.start = Math.min(block.start, start);
+    block.end = Math.max(block.end, end);
+    at.push(block);
+    if (!Object.hasOwn(field.attrs, 'show-if')) continue;
+    let cond;
+    try {
+      cond = parseShowIf(field.attrs['show-if']);
+    } catch (error) {
+      return `${where}${field.name} ${error.message}.`;
+    }
+    if (block.cond && showIfText(block.cond) !== showIfText(cond)) {
+      return `${where}${block.by} and ${field.name} are in the same paragraph with different show-if; fields in one paragraph are shown together, so give it once, or put a blank line between them.`;
+    }
+    block.cond = cond;
+    block.by = field.name;
+  }
+  for (let i = 0; i < fields.length; i += 1) {
+    const field = fields[i];
+    const block = at[i];
+    if (!block.cond) continue;
+    const where = `line ${field.line + 1}: `;
+    const j = fields.findIndex(f => f.name === block.cond.field);
+    if (j < 0) return `${where}show-if names ${block.cond.field}, which is not a field of this form.`;
+    if (j >= i || at[j] === block) return `${where}show-if names ${block.cond.field}, which must be asked before this paragraph.`;
+    const wrong = checkShowIf(block.cond, fields[j]);
+    if (wrong) return `${where}${wrong}.`;
+    Object.assign(field, { showIf: block.cond, hideFrom: block.start, hideTo: block.end });
+  }
+  return '';
+}
+
+/** The names of the fields the person is asked, given their answers. */
+export function askedFields(form, answers, today) {
+  const asked = new Set();
+  const byName = new Map();
+  for (const field of form.fields) {
+    byName.set(field.name, field);
+    if (!field.showIf) {
+      asked.add(field.name);
+      continue;
+    }
+    const on = byName.get(field.showIf.field);
+    const answer = on && asked.has(on.name) ? answers?.[on.name] : '';
+    if (on && showIfHolds(field.showIf, on, answer, today)) asked.add(field.name);
+  }
+  return asked;
+}
+
+/** The body lines of the blocks not asked. */
+export function hiddenLines(form, asked) {
+  const hidden = new Set();
+  for (const field of form.fields) {
+    if (field.showIf && !asked.has(field.name)) for (let i = field.hideFrom; i <= field.hideTo; i += 1) hidden.add(i);
+  }
+  return hidden;
+}
+
+/**
+ * A field's default answer for person ({ name, email }, either may be missing) at now: a list for
+ * a choice with multi, otherwise text; null when it is @name or @email and the person isn't known
+ * (the server fills it in when the answer is left out).
+ */
+export function defaultAnswer(field, person = {}, now = new Date()) {
+  const d = field.default;
+  if (field.multi) return d ? d.split('|').map(v => v.trim()) : [];
+  const pad = n => String(n).padStart(2, '0');
+  const time = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  switch (d) {
+    case '@name': return person?.name || null;
+    case '@email': return person?.email || null;
+    case '@today': return localToday(now);
+    case '@now': return field.type === 'time' ? time : `${localToday(now)} ${time}`;
+    default: return d;
+  }
 }
 
 /** What is wrong with one answer (a string, or a list for choice multi), or ''. today is YYYY-MM-DD. */
 export function checkAnswer(field, value, today) {
   const a = field.attrs;
+  if (field.type === 'photo') {
+    const photos = Array.isArray(value) ? value : [];
+    const limit = photoLimit(field);
+    if (field.required && !photos.length) return 'Add a photo.';
+    if (photos.length > limit) return limit === 1 ? 'Add one photo.' : `Add at most ${limit} photos.`;
+    return '';
+  }
   if (field.multi) {
     const picked = Array.isArray(value) ? value : [];
     const seen = new Set();
@@ -405,9 +677,12 @@ export function checkAnswer(field, value, today) {
 }
 
 /** Checks every answer; returns [{ name, message }] for the ones that need fixing. */
-export function checkAnswers(form, answers, today) {
+export function checkAnswers(form, answers, today, options = {}) {
   const problems = [];
+  const asked = askedFields(form, answers, today);
   for (const field of form.fields) {
+    // A question its show-if doesn't ask isn't checked; nor one the server fills in.
+    if (!asked.has(field.name) || options.serverFills?.has(field.name)) continue;
     const message = checkAnswer(field, answers?.[field.name], today);
     if (message) problems.push({ name: field.name, message });
   }
@@ -419,8 +694,8 @@ export function checkAnswers(form, answers, today) {
  * hint mark (hints holds their text), and a choice's option lines go (the field draws them).
  * Lines that held only a comment become a line holding only its hint.
  */
-export function fillMarkdown(form) {
-  const optionLines = new Set();
+export function fillMarkdown(form, hidden = new Set()) {
+  const optionLines = new Set(hidden);
   const fieldAt = new Map();
   form.fields.forEach((field, index) => {
     fieldAt.set(`${field.line}:${field.name}`, index);
@@ -467,6 +742,11 @@ export function fillMarkdown(form) {
     out.push(result);
   });
   return { markdown: out.join('\n'), hints: hints.map(h => h.trim()) };
+}
+
+/** How many photos a photo field takes (max=, 1 when not given). */
+export function photoLimit(field) {
+  return Number(field.attrs?.max) || 1;
 }
 
 /** The person's local date as YYYY-MM-DD. */

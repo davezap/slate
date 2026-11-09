@@ -106,7 +106,7 @@ export interface SlateChangesEndDetail {
   toLabel: string;
 }
 
-export type SlateFieldType = 'text' | 'textarea' | 'number' | 'date' | 'time' | 'email' | 'phone' | 'choice' | 'select' | 'yesno' | 'sign';
+export type SlateFieldType = 'text' | 'textarea' | 'number' | 'date' | 'time' | 'email' | 'phone' | 'choice' | 'select' | 'yesno' | 'sign' | 'photo';
 
 export interface SlateFormField {
   type: SlateFieldType;
@@ -119,6 +119,10 @@ export interface SlateFormField {
   multi: boolean;
   /** A choice's or select's options, in order. */
   options: string[];
+  /** Its default= as written, such as "@name" or "Workshop A"; '' when it has none. (0.22.0) */
+  default: string;
+  /** The show-if its block is asked under, such as "damaged=Yes"; '' when always asked. (0.22.0) */
+  showIf: string;
 }
 
 /** A form template (front matter with form, title and submitTo; fields as {{type name=…}} tokens). */
@@ -157,6 +161,12 @@ export interface SlateFillOptions {
   inPreview?: boolean;
   /** The fields show greyed out and can't be changed, and there is no Send: for a page that can't send it. (0.19.0) */
   readOnly?: boolean;
+  /**
+   * Who is filling it in, for default=@name and default=@email. A field whose @name or @email
+   * isn't given here stays blank, and is left out of the answers Send hands over, so the server
+   * fills it in. (0.22.0)
+   */
+  person?: { name?: string; email?: string };
 }
 
 export interface SlateModeChangeDetail {
@@ -175,6 +185,10 @@ export interface SlateFillState {
 export interface SlateFormSubmitDetail {
   form: string;
   title: string;
+  /**
+   * The answers to the questions asked: show-if questions not asked, and @name/@email left to the server, are left out. A photo
+   * field's answer is a list of JPEG data URLs (at most 1600 pixels on the long side). (0.22.0)
+   */
   answers: SlateFormAnswers;
 }
 
@@ -182,7 +196,7 @@ export interface SlateFillEndDetail {
   /** 'done' (Stop Filling In), 'host' (endFill()), 'replaced' (setMarkdown() with a text that is no form), 'compare', 'changes' or 'mode' (left Preview, with inPreview). */
   reason: 'done' | 'host' | 'replaced' | 'compare' | 'changes' | 'mode';
   form: string;
-  /** The answers when it ended, for keeping as a draft. */
+  /** The answers when it ended, for keeping as a draft; photo fields are empty (photos aren't kept in drafts). */
   answers: SlateFormAnswers;
 }
 

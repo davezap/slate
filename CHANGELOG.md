@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.22.0 — 2026-11-09
+
+- Forms: fields take `default=` and `show-if=`, read as Metatrash Core 0.95.19 reads them (`src/forms.js`). Fill mode starts each field at its default; `startFill()` takes `person: { name, email }` for `@name` and `@email`, and a field whose person value isn't given stays blank with "Your name, added when sent", left out of the answers so the server fills it in. Questions whose `show-if` isn't met are hidden with their block and drawn again as answers change, keeping the person's place; Send checks and hands over only the questions asked. `getForm()` fields carry `default` and `showIf`.
+- Forms: `autoFlow: true` in the front matter makes the headings steps. What comes before the first heading always shows; each later step appears once every question asked in the steps before it is answered, with "The next step appears when this one is done." below the last one shown.
+- Forms: `{{photo name=… max=N required}}` (1 to 10 photos, default 1; 20 in a form; not in quizzes, not a default or show-if). Fill mode offers Take photo (phones: the camera) and Choose photo, scales each picture to at most 1600 pixels on its long side as a JPEG at 85% (which drops its Exif, including location), and shows thumbnails with a remove button. Send hands the answer over as a list of data URLs; `fillSnapshot()`, `slate:form-input` and `endFill()` leave photos out so hosts don't keep them in drafts. New styles in `slate.css`.
+- `test/forms-flow-check.mjs` (run with Node) checks the parser, defaults, auto flow, photo fields and show-if against `test/guided-form.md`, the same template as Core's Go tests. Claude ran it and a browser check of fill mode; David runs the release. See docs/release-0.22.0.md.
+
 ## 0.21.2 — 2026-11-08
 
 - Tables preserve whole words when allocating column widths, so short keys such as `name`, `when` and `every` are no longer squeezed into letter fragments beside long descriptions. Oversized words and URLs can still wrap. Applies to rendered editing, Preview and print. See docs/release-0.21.2.md. David runs builds and acceptance checks; none run by Codex.
