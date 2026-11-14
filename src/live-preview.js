@@ -119,7 +119,7 @@ class InlineImageWidget extends WidgetType {
   toDOM() { return this.render(this.alt, this.url, this.title); }
 }
 
-// A table, standalone image or video, or a diagram. Inactive it replaces its lines; active (cursor
+// A table, standalone image or video, a diagram or a named embed. Inactive it replaces its lines; active (cursor
 // inside) a media block or diagram is drawn under its source, and a table shows only its source.
 class BlockWidget extends WidgetType {
   constructor(block, active, options) {
@@ -133,7 +133,7 @@ class BlockWidget extends WidgetType {
   }
   get estimatedHeight() {
     if (this.block.type === 'table') return 34 * (this.block.toLine - this.block.fromLine) + 30;
-    return this.block.type === 'video' ? 420 : this.block.type === 'diagram' ? 320 : 260;
+    return this.block.type === 'video' ? 420 : this.block.type === 'diagram' || this.block.type === 'embed' ? 320 : 260;
   }
   toDOM(view) {
     const dom = this.options.renderBlock(this.block);

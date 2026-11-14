@@ -8,7 +8,7 @@ Edit and Source are one [CodeMirror 6](https://codemirror.net/) editor: Source s
 
 ## What is included
 
-- `slate.js` — complete Slate 0.22.0 editor/component, built from `src/` (don't edit it by hand).
+- `slate.js` — complete Slate 0.23.0 editor/component, built from `src/` (don't edit it by hand).
 - `src/slate.js` — the editor source; `src/source-editor.js` — the CodeMirror editor behind Edit and Source; `src/live-preview.js` — Edit mode's Live Preview drawing; `src/changes.js` — the block and word comparison behind Show Changes; `src/forms.js` — form templates: fields, answer checks and fill mode's text.
 - `slate.css` — generic scoped component styling.
 - `mermaid/` — [Mermaid](https://mermaid.js.org/) for diagrams, built from `src/mermaid-entry.js`: `mermaid.js` plus a chunk per diagram type. Hosts copy the folder next to `slate.js`; it is loaded only when a document has a diagram (see **Diagrams**).
@@ -125,6 +125,20 @@ flowchart LR
 Mermaid is large, so it isn't in `slate.js`. The first diagram in a page loads `mermaid/mermaid.js` (an ES module) from the folder `slate.js` was loaded from, and that loads only the chunks its diagram types need (a flowchart is about 2.3 MB, read once). Pass `diagramsUrl` with the full URL of `mermaid.js` if it lives elsewhere. Until it loads, or if it can't, the block shows its source. A diagram with a mistake shows Mermaid's message above its source.
 
 In Edit a diagram is a block like a table: clicking it, or its ✎ button, shows the source with the diagram drawn underneath as you type. Diagrams follow the host's theme (`data-theme` on the host: light, dark or paper). Mermaid runs with `securityLevel: 'strict'`, so diagram text can't run script or load anything.
+
+### Named embeds (`embed`)
+
+Since 0.23.0 a build's edition (`src/edition.js`, swapped at build time by hosts such as Collumii) can offer named embeds: vetted content, compiled into the build, that a document places by name. A fenced block tagged `embed` holding one line, the name, is drawn by that embed in Preview, Edit, Show Changes and fill mode:
+
+````markdown
+```embed
+support-card
+```
+````
+
+Only names the edition lists are drawn. Any other name, a block with more than one line, or an embed that fails stays an ordinary code block, so a document still can't carry script or styles of its own. The public edition has no embeds, so there every `embed` block is code. In Edit an embed is a block like a diagram: its ✎ button shows the source; clicks on the embed's own controls stay with it.
+
+An edition gives `embeds` as `{ name: { label, mount(element) } }`. Names are lower case letters, digits and hyphens. `mount` fills the element it is given (the label is its accessible name) and must stop its own work (animation frames, listeners) once the element has left the document, because Slate draws a block again whenever the document is drawn again. Its styles belong in the host's stylesheet. `test/embeds-check.mjs` builds Slate with a test edition and checks all of this.
 
 ### `outlinePanel`
 

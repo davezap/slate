@@ -678,6 +678,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
 
     el.previewPane.replaceChildren(fragment);
     hydrateDiagrams(el.previewPane);
+    hydrateEmbeds(el.previewPane);
     ensureTrailingLiveBlankBlock();
     await hydrateAttachments();
     if (generation !== state.liveRenderGeneration) return;
@@ -1725,6 +1726,16 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     let inFence = false;
     for (let index = 0; index < lines.length; index += 1) {
       const line = lines[index];
+      if (!inFence && /^\s*```/.test(line) && embedLanguage(line.trim().slice(3))) {
+        // A named embed, drawn as a block like a diagram when the name is one the edition has.
+        let last = index + 1;
+        while (last < lines.length && !/^\s*```/.test(lines[last])) last += 1;
+        if (last < lines.length && embedName(line.trim().slice(3), lines.slice(index + 1, last))) {
+          blocks.push({ type: 'embed', fromLine: index, toLine: last, source: lines.slice(index, last + 1).join('\n') });
+          index = last;
+          continue;
+        }
+      }
       if (!inFence && /^\s*```/.test(line) && diagramLanguage(line.trim().slice(3))) {
         // A diagram, drawn as a block up to its closing fence (an unclosed one stays code).
         let last = index + 1;
@@ -1771,6 +1782,16 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
       toggle.setAttribute('aria-label', toggle.title);
       element.querySelector('.slate-diagram')?.prepend(toggle);
       hydrateDiagrams(element);
+    } else if (block.type === 'embed') {
+      element.classList.add('cm-slate-embed');
+      element.innerHTML = renderMarkdown(block.source);
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'media-source-toggle embed-source-toggle';
+      toggle.title = 'Edit the embed source';
+      toggle.setAttribute('aria-label', toggle.title);
+      element.querySelector('.slate-embed')?.prepend(toggle);
+      hydrateEmbeds(element);
     } else if (block.type === 'video') {
       renderLiveVideoBlock(element, block.source, parseStandaloneVideo(block.source));
     } else {
@@ -1803,6 +1824,53 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     attributes.target = '_blank';
     attributes.rel = 'noopener noreferrer';
     return attributes;
+  }
+
+  // ---- Named embeds (```embed) ----------------------------------------------------------
+  // A fenced block with the info string `embed` and a single line naming one of the edition's
+  // embeds (edition.embeds) is drawn by that embed. Any other name, or more than one line, stays
+  // an ordinary code block, so a document can only place content compiled into the build.
+
+  // An older edition file without `embeds` has none.
+  const editionEmbeds = edition.embeds || {};
+
+  function embedLanguage(info) {
+    return String(info || '').trim().split(/\s+/)[0].toLowerCase() === 'embed';
+  }
+
+  /** The edition embed a fenced block names (`info` its info string, `code` its lines), or null. */
+  function embedName(info, code) {
+    if (!embedLanguage(info)) return null;
+    const lines = code.filter(line => line.trim());
+    if (lines.length !== 1) return null;
+    const name = lines[0].trim().toLowerCase();
+    return /^[a-z0-9][a-z0-9-]{0,63}$/.test(name) && Object.hasOwn(editionEmbeds, name) ? name : null;
+  }
+
+  function embedHtml(name) {
+    const label = String(editionEmbeds[name].label || name);
+    return `<div class="slate-embed" data-embed="${escapeAttribute(name)}" role="group" aria-label="${escapeAttribute(label)}">`
+      + `<div class="slate-embed-content"><pre class="slate-diagram-pending"><code>${escapeHtml(name)}</code></pre></div></div>`;
+  }
+
+  /** Starts the embeds under `root` that haven't started. Each embed stops its own work once it leaves the page. */
+  function hydrateEmbeds(root = el.previewPane) {
+    for (const element of root?.querySelectorAll('.slate-embed:not([data-embed-started])') ?? []) {
+      element.dataset.embedStarted = 'true';
+      const embed = Object.hasOwn(editionEmbeds, element.dataset.embed) ? editionEmbeds[element.dataset.embed] : null;
+      const content = element.querySelector('.slate-embed-content');
+      if (!embed || !content) continue;
+      try {
+        content.replaceChildren();
+        embed.mount(content);
+      } catch (error) {
+        console.error(`Slate: the ${element.dataset.embed} embed failed`, error);
+        const code = document.createElement('pre');
+        code.className = 'slate-diagram-pending';
+        code.textContent = element.dataset.embed;
+        content.replaceChildren(code);
+      }
+    }
   }
 
   // ---- Diagrams (```mermaid) -------------------------------------------------------------
@@ -1978,6 +2046,11 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
         if (index < lines.length) index += 1;
         if (diagramLanguage(language)) {
           html.push(diagramHtml(diagramLanguage(language), code.join('\n')));
+          continue;
+        }
+        const embed = embedName(language, code);
+        if (embed) {
+          html.push(embedHtml(embed));
           continue;
         }
         const className = language ? ` class="language-${escapeAttribute(language)}"` : '';
@@ -3439,6 +3512,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     });
     pane.replaceChildren(fragment);
     hydrateDiagrams(pane);
+    hydrateEmbeds(pane);
     await hydrateAttachments(pane);
     if (generation !== state.changesGeneration) return plan.changes;
     hydrateWikiLinks(pane);
@@ -3626,6 +3700,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     pane.replaceChildren(fragment);
     placeFormMarks(pane, fill, hints);
     hydrateDiagrams(pane);
+    hydrateEmbeds(pane);
     await hydrateAttachments(pane);
     if (state.fill !== fill || generation !== fill.generation) return;
     hydrateWikiLinks(pane);

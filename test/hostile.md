@@ -31,3 +31,13 @@ click A "javascript:window.__pwned='mclick'"
 ```
 
 Raw control: [c1](javascript:window.__pwned='c1') [c2](javascript:window.__pwned='c2') ![c3](javascript:window.__pwned='c3')
+
+Embeds that aren't the edition's stay code:
+
+```embed
+<img src=x onerror="window.__pwned='embed'">
+```
+
+```embed
+__proto__
+```

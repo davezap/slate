@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.23.0 — 2026-11-14
+
+- Named embeds: an edition (`src/edition.js`) can offer `embeds`, `{ name: { label, mount(element) } }`, and a fenced block tagged `embed` whose only line is one of those names is drawn by it in Preview, Edit (as a block like a diagram, with a ✎ button for the source), Show Changes and fill mode. Any other name, a block of several lines or an embed that throws stays an ordinary code block, so documents still can't carry script or styles. The public edition has none. Collumii's site uses it for the support card on its home page (Company 0.96.46).
+- `test/embeds-check.mjs` builds Slate with `test/embed-edition.js` and checks embeds in Preview and Edit (drawn, their own buttons work, other names stay code); `test/hostile.md` gains `embed` blocks naming markup and `__proto__`. Claude ran it, `hostile-check.mjs` and `blockquotes-check.mjs`; see docs/release-0.23.0.md.
+
 ## 0.22.0 — 2026-11-09
 
 - Forms: fields take `default=` and `show-if=`, read as Metatrash Core 0.95.19 reads them (`src/forms.js`). Fill mode starts each field at its default; `startFill()` takes `person: { name, email }` for `@name` and `@email`, and a field whose person value isn't given stays blank with "Your name, added when sent", left out of the answers so the server fills it in. Questions whose `show-if` isn't met are hidden with their block and drawn again as answers change, keeping the person's place; Send checks and hands over only the questions asked. `getForm()` fields carry `default` and `showIf`.

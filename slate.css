@@ -1253,7 +1253,12 @@
 }
 .slate-editor-host .slate-diagram:hover .media-source-toggle{ opacity: 1; }
 .slate-editor-host .cm-slate-diagram{ cursor: pointer; }
+/* Named embeds (0.23.0): the edition's content draws itself; the frame only spaces it. */
+.slate-editor-host .slate-embed{ position: relative; margin: 1em 0; }
+.slate-editor-host .slate-embed:hover .media-source-toggle{ opacity: 1; }
 @media print{
+  .slate-editor-host .slate-embed{ break-inside: avoid; }
+  .slate-editor-host .slate-embed .media-source-toggle{ display: none; }
   .slate-editor-host .slate-diagram{ overflow: visible; break-inside: avoid; }
   /* A diagram taller than the page is scaled down to fit one page, not split. */
   .slate-editor-host .slate-diagram-canvas > svg{ max-height: 85vh; }
