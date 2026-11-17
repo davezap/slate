@@ -1264,3 +1264,86 @@
   .slate-editor-host .slate-diagram-canvas > svg{ max-height: 85vh; }
   .slate-editor-host .slate-diagram .media-source-toggle{ display: none; }
 }
+
+/* ---- Dashboard cards (```card, 0.24.0) ----
+   A page with cards flows its blocks in rows: cards side by side (wide ones twice as wide),
+   everything else across the whole width. Chart colours are --slate-chart-1..8, in a fixed order
+   (checked for colour-blind separation against each theme's panel); an edition may set its own. */
+.slate-editor-host{
+  --slate-chart-1: #2a78d6; --slate-chart-2: #eb6834; --slate-chart-3: #1baf7a; --slate-chart-4: #eda100;
+  --slate-chart-5: #e87ba4; --slate-chart-6: #008300; --slate-chart-7: #6250d6; --slate-chart-8: #e34948;
+  --slate-card-shadow: 0 1px 2px rgba(35, 24, 49, 0.06), 0 6px 18px rgba(35, 24, 49, 0.06);
+}
+.slate-editor-host[data-theme="dark"]{
+  --slate-chart-1: #3987e5; --slate-chart-2: #d95926; --slate-chart-3: #199e70; --slate-chart-4: #c98500;
+  --slate-chart-5: #d55181; --slate-chart-6: #0ca30c; --slate-chart-7: #9085e9; --slate-chart-8: #e66767;
+  --slate-card-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 6px 18px rgba(0, 0, 0, 0.25);
+}
+.slate-editor-host[data-theme="paper"]{
+  --slate-chart-1: #2a6fc4; --slate-chart-2: #c8551f; --slate-chart-3: #13865c; --slate-chart-4: #a86f00;
+  --slate-chart-5: #c04a78; --slate-chart-6: #1d7a1d; --slate-chart-7: #5543c4; --slate-chart-8: #c43a3a;
+}
+.slate-editor-host .preview-pane:has(.slate-card){
+  display: flex; flex-wrap: wrap; align-content: flex-start; column-gap: 16px;
+}
+.slate-editor-host .preview-pane:has(.slate-card) > .live-block{ flex: 1 1 100%; min-width: 0; }
+.slate-editor-host .preview-pane:has(.slate-card) > .live-block:has(> .slate-card){ flex: 1 1 260px; margin: 8px 0; }
+.slate-editor-host .preview-pane:has(.slate-card) > .live-block:has(> .slate-card[data-size="wide"]){ flex: 2 1 540px; }
+.slate-editor-host .preview-pane:has(.slate-card) > .live-block:has(> .slate-card[data-size="full"]){ flex: 1 1 100%; }
+/* Blank lines between cards take no room and no gap (an absolute child is not a flex item). */
+.slate-editor-host .preview-pane:has(.slate-card) > .live-block.is-empty{ position: absolute; width: 0; height: 0; min-height: 0; overflow: hidden; padding: 0; margin: 0; }
+.slate-editor-host .preview-pane > .live-block.slate-card-hidden{ display: none; }
+.slate-editor-host .slate-card{
+  position: relative; display: flex; flex-direction: column; gap: 10px; height: 100%;
+  padding: 16px 18px; border: 1px solid var(--border); border-radius: 12px;
+  background: var(--panel); box-shadow: var(--slate-card-shadow); color: var(--text);
+}
+.slate-editor-host .slate-card::before{
+  content: ""; position: absolute; inset: 0 0 auto 0; height: 4px; border-radius: 12px 12px 0 0;
+  background: var(--slate-chart-1);
+}
+.slate-editor-host .slate-card[data-show="pie"]::before{ background: var(--slate-chart-2); }
+.slate-editor-host .slate-card[data-show="bar"]::before{ background: var(--slate-chart-3); }
+.slate-editor-host .slate-card[data-show="line"]::before{ background: var(--slate-chart-5); }
+.slate-editor-host .slate-card[data-show="markdown"]::before{ background: var(--slate-chart-6); }
+.slate-editor-host .slate-card[data-show="form"]::before{ background: var(--slate-chart-4); }
+.slate-editor-host .slate-card.has-error::before{ background: var(--danger); }
+.slate-editor-host .slate-card-title{ font-weight: 650; font-size: 0.95em; color: var(--text-muted); letter-spacing: 0.01em; }
+.slate-editor-host .slate-card-body{ min-width: 0; flex: 1 1 auto; }
+.slate-editor-host .slate-card-number{ font-size: 2.6em; font-weight: 700; line-height: 1.1; color: var(--text); font-variant-numeric: tabular-nums; }
+.slate-editor-host .slate-card-chart{ position: relative; height: 240px; }
+.slate-editor-host .slate-card[data-size="full"] .slate-card-chart{ height: 300px; }
+.slate-editor-host .slate-card-list{ margin: 0; padding-left: 1.2em; }
+.slate-editor-host .slate-card-list li{ margin: 3px 0; }
+.slate-editor-host .slate-card-table{ width: 100%; border-collapse: collapse; font-size: 0.92em; margin: 0; }
+.slate-editor-host .slate-card-table th,
+.slate-editor-host .slate-card-table td{ padding: 6px 8px; border-bottom: 1px solid var(--border); text-align: left; }
+.slate-editor-host .slate-card-table td.is-number{ text-align: right; font-variant-numeric: tabular-nums; }
+.slate-editor-host .slate-card-sort{ all: unset; cursor: pointer; font-weight: 650; }
+.slate-editor-host .slate-card-sort:focus-visible{ outline: 2px solid var(--accent); outline-offset: 2px; }
+.slate-editor-host th[aria-sort="ascending"] .slate-card-sort::after{ content: " ▲"; font-size: 0.75em; }
+.slate-editor-host th[aria-sort="descending"] .slate-card-sort::after{ content: " ▼"; font-size: 0.75em; }
+.slate-editor-host .slate-card-link{ color: var(--accent); text-decoration: none; }
+.slate-editor-host .slate-card-link:hover{ text-decoration: underline; }
+.slate-editor-host .slate-card-message,
+.slate-editor-host .slate-card-note,
+.slate-editor-host .slate-card-pending{ color: var(--text-muted); font-size: 0.9em; }
+.slate-editor-host .slate-card-message.is-error,
+.slate-editor-host .slate-card-error{ color: var(--danger); font-size: 0.9em; }
+.slate-editor-host .slate-card-markdown > :first-child{ margin-top: 0; }
+.slate-editor-host .slate-card-markdown > :last-child{ margin-bottom: 0; }
+.slate-editor-host .slate-card-actions{ display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 10px; }
+.slate-editor-host .slate-card-button{
+  font: inherit; font-weight: 600; padding: 7px 16px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--accent); background: var(--accent); color: var(--panel);
+}
+.slate-editor-host .slate-card-button:disabled{ opacity: 0.6; cursor: default; }
+.slate-editor-host .slate-card-status{ font-size: 0.9em; color: var(--text-muted); }
+.slate-editor-host .slate-card-status[data-kind="error"]{ color: var(--danger); }
+.slate-editor-host .slate-card-status[data-kind="done"]{ color: var(--complete); font-weight: 600; }
+.slate-editor-host .slate-card-form .live-block{ margin: 0; }
+.slate-editor-host .slate-card:hover .media-source-toggle{ opacity: 1; }
+.slate-editor-host .cm-slate-card{ cursor: pointer; margin: 6px 0; }
+@media print{
+  .slate-editor-host .slate-card{ box-shadow: none; break-inside: avoid; }
+}

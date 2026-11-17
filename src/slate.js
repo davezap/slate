@@ -1,6 +1,7 @@
 import * as edition from './edition.js';
 import { createSourceEditor } from './source-editor.js';
 import { markWordChanges, planChanges } from './changes.js';
+import { QUERY_SHOWS, cardColumns, cardContext, conditionsHold, formatNumber, parseCard, sortRows } from './cards.js';
 import { askedFields, checkAnswers, defaultAnswer, flowHidden, hiddenLines, isFormTemplate, localToday, parseForm, fillMarkdown, photoLimit, showIfText } from './forms.js';
 
 (() => {
@@ -9,7 +10,7 @@ import { askedFields, checkAnswers, defaultAnswer, flowHidden, hiddenLines, isFo
   // Where slate.js was loaded from, to find mermaid/ next to it.
   const SCRIPT_URL = document.currentScript?.src || '';
 
-  const APP_VERSION = '0.22.0';
+  const APP_VERSION = '0.24.0';
   const DB_NAME = 'slate-markdown-editor-db';
   const DB_VERSION = 1;
   const NODE_STORE = 'documents';
@@ -261,6 +262,8 @@ import { askedFields, checkAnswers, defaultAnswer, flowHidden, hiddenLines, isFo
     state.resolveUrl = typeof options.resolveUrl === 'function' ? options.resolveUrl : null;
     state.outlinePanel = options.outlinePanel !== false;
     state.diagramsUrl = typeof options.diagramsUrl === 'string' ? options.diagramsUrl : '';
+    state.chartsUrl = typeof options.chartsUrl === 'string' ? options.chartsUrl : '';
+    if (options.cardHost) setCardHost(options.cardHost);
 
     const requestedMode = normaliseWorkspaceMode(
       options.workspaceMode ?? readSetting('slate.workspaceMode') ?? 'edit'
@@ -679,6 +682,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     el.previewPane.replaceChildren(fragment);
     hydrateDiagrams(el.previewPane);
     hydrateEmbeds(el.previewPane);
+    hydrateCards(el.previewPane);
     ensureTrailingLiveBlankBlock();
     await hydrateAttachments();
     if (generation !== state.liveRenderGeneration) return;
@@ -1726,6 +1730,16 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     let inFence = false;
     for (let index = 0; index < lines.length; index += 1) {
       const line = lines[index];
+      if (!inFence && /^\s*```/.test(line) && cardLanguage(line.trim().slice(3))) {
+        // A dashboard card, drawn as a block up to its closing fence (an unclosed one stays code).
+        let last = index + 1;
+        while (last < lines.length && !/^\s*```/.test(lines[last])) last += 1;
+        if (last < lines.length) {
+          blocks.push({ type: 'card', fromLine: index, toLine: last, source: lines.slice(index, last + 1).join('\n') });
+          index = last;
+          continue;
+        }
+      }
       if (!inFence && /^\s*```/.test(line) && embedLanguage(line.trim().slice(3))) {
         // A named embed, drawn as a block like a diagram when the name is one the edition has.
         let last = index + 1;
@@ -1782,6 +1796,16 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
       toggle.setAttribute('aria-label', toggle.title);
       element.querySelector('.slate-diagram')?.prepend(toggle);
       hydrateDiagrams(element);
+    } else if (block.type === 'card') {
+      element.classList.add('cm-slate-card');
+      element.innerHTML = renderMarkdown(block.source);
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'media-source-toggle card-source-toggle';
+      toggle.title = 'Edit the card';
+      toggle.setAttribute('aria-label', toggle.title);
+      element.querySelector('.slate-card')?.prepend(toggle);
+      hydrateCards(element);
     } else if (block.type === 'embed') {
       element.classList.add('cm-slate-embed');
       element.innerHTML = renderMarkdown(block.source);
@@ -1792,6 +1816,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
       toggle.setAttribute('aria-label', toggle.title);
       element.querySelector('.slate-embed')?.prepend(toggle);
       hydrateEmbeds(element);
+      hydrateCards(element);
     } else if (block.type === 'video') {
       renderLiveVideoBlock(element, block.source, parseStandaloneVideo(block.source));
     } else {
@@ -1824,6 +1849,456 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     attributes.target = '_blank';
     attributes.rel = 'noopener noreferrer';
     return attributes;
+  }
+
+  // ---- Dashboard cards (```card, 0.24.0) ------------------------------------------------
+  // A fenced block with the info string `card` is a dashboard card (see cards.js). The host
+  // (setCardHost) answers its query, reads the files it shows and sends its forms; without one a
+  // card says where it shows its data. Charts come from charts/ next to slate.js, loaded the first
+  // time a page has a chart card.
+
+  const CARD_REFRESH_MS = 60000;
+  let chartsModule = null;
+  let cardTimer = null;
+
+  function cardLanguage(info) {
+    return String(info || '').trim().split(/\s+/)[0].toLowerCase() === 'card';
+  }
+
+  function cardHtml(code) {
+    const card = parseCard(code);
+    const source = escapeAttribute(code.join('\n'));
+    if (card.error) {
+      return `<div class="slate-card has-error" data-size="full" data-card-source="${source}"><div class="slate-card-error">${escapeHtml(`This card can't be shown: ${card.error}`)}</div>`
+        + `<pre class="slate-diagram-pending"><code>${escapeHtml(code.join('\n'))}</code></pre></div>`;
+    }
+    const title = card.title ? `<div class="slate-card-title">${inlineMarkdown(card.title)}</div>` : '';
+    return `<div class="slate-card" data-size="${card.size}" data-show="${card.show}" data-card-source="${source}" role="group"${card.title ? ` aria-label="${escapeAttribute(card.title)}"` : ''}>`
+      + `${title}<div class="slate-card-body"><div class="slate-card-pending">…</div></div></div>`;
+  }
+
+  /**
+   * The host that gives cards their data: { query(query), read(path), notices(paths),
+   * acknowledge(path, blob), submit(path, answers), open?(path), person?: { name, email } }.
+   * Every call returns a promise; paths are as the card wrote them (the host resolves them from
+   * the open document). null removes it.
+   */
+  function setCardHost(host) {
+    if (host !== null && host !== undefined && (typeof host !== 'object' || typeof host.query !== 'function')) {
+      throw new TypeError('setCardHost requires an object with query, read, notices, acknowledge and submit, or null.');
+    }
+    state.cardHost = host || null;
+    if (!mountHost) return;
+    for (const element of mountHost.querySelectorAll('.slate-card[data-card-started]')) delete element.dataset.cardStarted;
+    hydrateCards(mountHost);
+  }
+
+  /** Draws the cards under `root` that haven't started, and keeps them fresh while they show. */
+  function hydrateCards(root = el.previewPane) {
+    const elements = [...(root?.querySelectorAll('.slate-card:not(.has-error):not([data-card-started])') ?? [])];
+    for (const element of elements) {
+      element.dataset.cardStarted = 'true';
+      void loadCard(element);
+    }
+    if (elements.length && !cardTimer) {
+      cardTimer = setInterval(() => {
+        if (document.visibilityState === 'visible') refreshCards();
+      }, CARD_REFRESH_MS);
+      window.addEventListener('focus', () => refreshCards({ ifOlderThan: CARD_REFRESH_MS }));
+    }
+  }
+
+  function refreshCards(options = {}) {
+    if (!mountHost) return;
+    const now = Date.now();
+    for (const element of mountHost.querySelectorAll('.slate-card[data-card-started]')) {
+      if (options.ifOlderThan && now - Number(element.dataset.cardLoaded || 0) < options.ifOlderThan) continue;
+      // A form someone is filling in keeps its answers: only whether it shows is checked again.
+      if (element.dataset.show === 'form') applyCardCondition(element);
+      else void loadCard(element);
+    }
+  }
+
+  function cardOf(element) {
+    return parseCard(String(element.dataset.cardSource ?? '').split('\n'));
+  }
+
+  function cardBody(element) {
+    return element.querySelector(':scope > .slate-card-body');
+  }
+
+  function showCardMessage(element, text, kind = '') {
+    const body = cardBody(element);
+    if (!body) return;
+    const message = document.createElement('div');
+    message.className = `slate-card-message${kind ? ` is-${kind}` : ''}`;
+    message.textContent = text;
+    body.replaceChildren(message);
+  }
+
+  /** Shows or hides a card by its show-if, with the count and done it last saw. */
+  function applyCardCondition(element) {
+    const card = cardOf(element);
+    if (card.error) return true;
+    const context = cardContext(new Date(), state.cardHost?.person?.name || '');
+    context['@count'] = Number(element.dataset.cardCount || 0);
+    context['@done'] = element.dataset.cardDone === 'true';
+    const shows = conditionsHold(card.showIf, context);
+    element.hidden = !shows;
+    element.closest('.live-block')?.classList.toggle('slate-card-hidden', !shows);
+    return shows;
+  }
+
+  async function loadCard(element) {
+    const card = cardOf(element);
+    if (card.error) return;
+    const host = state.cardHost;
+    if (!host) {
+      showCardMessage(element, 'This card shows its data in Slate Viewer and on the website.');
+      return;
+    }
+    const generation = String(Number(element.dataset.cardGeneration || 0) + 1);
+    element.dataset.cardGeneration = generation;
+    const stale = () => !element.isConnected || element.dataset.cardGeneration !== generation;
+    try {
+      if (QUERY_SHOWS.has(card.show)) {
+        const result = await host.query({ ...card.query, today: cardContext()['@today'] });
+        if (stale()) return;
+        element.dataset.cardCount = String(result.count ?? 0);
+        element.dataset.cardLoaded = String(Date.now());
+        if (!applyCardCondition(element)) return;
+        await drawQueryCard(element, card, result);
+      } else if (card.show === 'markdown') {
+        let text = card.body ?? '';
+        if (card.source) text = (await host.read(card.source)).text;
+        if (stale()) return;
+        element.dataset.cardLoaded = String(Date.now());
+        if (!applyCardCondition(element)) return;
+        drawMarkdownCard(element, text);
+      } else if (card.show === 'form') {
+        await loadFormCard(element, card, host, stale);
+      }
+    } catch (error) {
+      if (stale()) return;
+      element.hidden = false;
+      element.closest('.live-block')?.classList.remove('slate-card-hidden');
+      showCardMessage(element, error?.message || String(error), 'error');
+    }
+  }
+
+  function drawMarkdownCard(element, text) {
+    const body = cardBody(element);
+    if (!body) return;
+    const content = document.createElement('div');
+    content.className = 'slate-card-markdown markdown-body';
+    // A card's text can't hold another card.
+    content.innerHTML = renderMarkdown(String(text).replace(/^```\s*card\b/gim, '```text'));
+    body.replaceChildren(content);
+    hydrateDiagrams(content);
+    hydrateEmbeds(content);
+    hydrateWikiLinks(content);
+    void hydrateAttachments(content);
+  }
+
+  function chartColours(element) {
+    const style = getComputedStyle(element);
+    const colours = [];
+    for (let i = 1; i <= 8; i += 1) {
+      const value = style.getPropertyValue(`--slate-chart-${i}`).trim();
+      if (value) colours.push(value);
+    }
+    return {
+      colours: colours.length ? colours : ['#4e79a7', '#f28e2b', '#e15759', '#76b7b2', '#59a14f', '#edc948', '#b07aa1', '#ff9da7'],
+      text: style.getPropertyValue('--text-muted').trim() || '#666',
+      grid: style.getPropertyValue('--border').trim() || '#ddd',
+      surface: style.getPropertyValue('--panel').trim() || '#fff',
+    };
+  }
+
+  function chartsUrl() {
+    if (state.chartsUrl) return state.chartsUrl;
+    try {
+      return new URL('charts/charts.js', SCRIPT_URL || location.href).href;
+    } catch {
+      return 'charts/charts.js';
+    }
+  }
+
+  function loadCharts() {
+    chartsModule ??= import(/* webpackIgnore: true */ chartsUrl()).catch(error => {
+      chartsModule = null;
+      throw new Error(`Charts could not be loaded (${chartsUrl()}): ${error.message || error}`);
+    });
+    return chartsModule;
+  }
+
+  function openCardFile(file) {
+    if (file && typeof state.cardHost?.open === 'function') state.cardHost.open(file);
+  }
+
+  function cardFileLink(text, file) {
+    const link = document.createElement('a');
+    link.href = '#';
+    link.className = 'slate-card-link';
+    link.textContent = text;
+    link.addEventListener('click', event => {
+      event.preventDefault();
+      openCardFile(file);
+    });
+    return link;
+  }
+
+  async function drawQueryCard(element, card, result) {
+    const body = cardBody(element);
+    if (!body) return;
+    const groups = result.groups || [];
+    const rows = result.rows || [];
+    const more = result.truncated ? 'More than shown.' : '';
+    if (card.show === 'count') {
+      const number = document.createElement('div');
+      number.className = 'slate-card-number';
+      number.textContent = formatNumber(result.value);
+      const parts = [number];
+      if (groups.length) parts.push(groupTable(groups, card));
+      body.replaceChildren(...parts);
+      return;
+    }
+    if (card.show === 'list') {
+      if (!rows.length && !groups.length) return showCardMessage(element, 'Nothing to show.');
+      const list = document.createElement('ul');
+      list.className = 'slate-card-list';
+      if (groups.length) {
+        groups.forEach(g => {
+          const item = document.createElement('li');
+          item.textContent = `${g.group}: ${formatNumber(g.value)}`;
+          list.append(item);
+        });
+      } else {
+        const column = cardColumns(card, result)[0] || 'name';
+        rows.forEach(row => {
+          const item = document.createElement('li');
+          const text = row.values[column] || row.values.name || row.file || '';
+          item.append(row.file && !row.line ? cardFileLink(text, row.file) : document.createTextNode(text));
+          list.append(item);
+        });
+      }
+      body.replaceChildren(list);
+      if (more) body.append(cardNote(more));
+      return;
+    }
+    if (card.show === 'table') {
+      if (!rows.length && !groups.length) return showCardMessage(element, 'Nothing to show.');
+      body.replaceChildren(groups.length ? groupTable(groups, card) : rowTable(rows, cardColumns(card, result)));
+      if (more) body.append(cardNote(more));
+      return;
+    }
+    // pie, bar, line
+    if (!groups.length) return showCardMessage(element, 'Nothing to show.');
+    let charts;
+    try {
+      charts = await loadCharts();
+    } catch (error) {
+      body.replaceChildren(groupTable(groups, card), cardNote(error.message));
+      return;
+    }
+    if (!element.isConnected) return;
+    const frame = document.createElement('div');
+    frame.className = 'slate-card-chart';
+    const canvas = document.createElement('canvas');
+    canvas.setAttribute('role', 'img');
+    canvas.setAttribute('aria-label', `${card.title || card.show}: ${groups.map(g => `${g.group} ${formatNumber(g.value)}`).join(', ')}`);
+    frame.append(canvas);
+    body.replaceChildren(frame);
+    if (more) body.append(cardNote(more));
+    const palette = chartColours(element);
+    // A pie has eight colours, never repeated: past eight slices the smallest share one, Other
+    // (a count or sum adds up; for avg, min or max only the eight largest are drawn).
+    let slices = groups;
+    if (card.show === 'pie' && groups.length > 8) {
+      const adds = !/^(avg|min|max)\b/.test(result.measure || '');
+      slices = [...groups].sort((a, b) => b.value - a.value).slice(0, adds ? 7 : 8);
+      if (adds) slices.push({ group: 'Other', value: groups.filter(g => !slices.includes(g)).reduce((sum, g) => sum + g.value, 0) });
+    }
+    charts.drawChart(canvas, {
+      kind: card.show,
+      labels: slices.map(g => g.group),
+      values: slices.map(g => g.value),
+      label: result.measure || 'count',
+      ...palette,
+    });
+  }
+
+  function cardNote(text) {
+    const note = document.createElement('div');
+    note.className = 'slate-card-note';
+    note.textContent = text;
+    return note;
+  }
+
+  function groupTable(groups, card) {
+    const table = document.createElement('table');
+    table.className = 'slate-card-table';
+    const head = table.createTHead().insertRow();
+    for (const name of [card.query.group || 'group', card.query.measure || 'count']) {
+      const th = document.createElement('th');
+      th.textContent = name;
+      head.append(th);
+    }
+    const tbody = table.createTBody();
+    groups.forEach(g => {
+      const tr = tbody.insertRow();
+      tr.insertCell().textContent = g.group;
+      const cell = tr.insertCell();
+      cell.textContent = formatNumber(g.value);
+      cell.className = 'is-number';
+    });
+    return table;
+  }
+
+  function rowTable(rows, columns) {
+    const table = document.createElement('table');
+    table.className = 'slate-card-table';
+    const head = table.createTHead().insertRow();
+    const tbody = table.createTBody();
+    let sorted = { column: '', descending: false };
+    const fill = list => {
+      tbody.replaceChildren();
+      list.forEach(row => {
+        const tr = tbody.insertRow();
+        columns.forEach((column, i) => {
+          const cell = tr.insertCell();
+          const text = row.values[column] ?? '';
+          if (i === 0 && row.file && !row.line) cell.append(cardFileLink(text || row.values.name || row.file, row.file));
+          else cell.textContent = text;
+        });
+      });
+    };
+    columns.forEach(column => {
+      const th = document.createElement('th');
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'slate-card-sort';
+      button.textContent = column;
+      button.addEventListener('click', () => {
+        sorted = { column, descending: sorted.column === column ? !sorted.descending : false };
+        head.querySelectorAll('th').forEach(h => h.removeAttribute('aria-sort'));
+        th.setAttribute('aria-sort', sorted.descending ? 'descending' : 'ascending');
+        fill(sortRows(rows, column, sorted.descending));
+      });
+      th.append(button);
+      head.append(th);
+    });
+    fill(rows);
+    return table;
+  }
+
+  // A form card: a file with fields is a form, sent as from its own page; one without is a notice
+  // the person acknowledges. Either is done once for its text as it is now (@done).
+  async function loadFormCard(element, card, host, stale) {
+    const [status] = await host.notices([card.source]);
+    const file = await host.read(card.source);
+    if (stale()) return;
+    if (!status || status.kind === 'missing') throw new Error(`${card.source} is not in this space.`);
+    element.dataset.cardDone = status.done ? 'true' : 'false';
+    element.dataset.cardLoaded = String(Date.now());
+    if (!applyCardCondition(element)) return;
+    const body = cardBody(element);
+    if (!body) return;
+    const actions = document.createElement('div');
+    actions.className = 'slate-card-actions';
+    const statusLine = document.createElement('span');
+    statusLine.className = 'slate-card-status';
+    statusLine.setAttribute('role', 'status');
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'slate-card-button';
+    actions.append(button, statusLine);
+    const finished = text => {
+      element.dataset.cardDone = 'true';
+      if (applyCardCondition(element)) {
+        button.hidden = true;
+        statusLine.textContent = text;
+        statusLine.dataset.kind = 'done';
+      }
+    };
+    if (status.kind === 'notice') {
+      const content = document.createElement('div');
+      content.className = 'slate-card-markdown markdown-body';
+      const { body: text } = splitNoticeText(file.text);
+      content.innerHTML = renderMarkdown(text.replace(/^```\s*card\b/gim, '```text'));
+      body.replaceChildren(content, actions);
+      hydrateWikiLinks(content);
+      button.textContent = 'Acknowledge';
+      if (status.done) {
+        button.hidden = true;
+        statusLine.textContent = '✓ Acknowledged';
+        statusLine.dataset.kind = 'done';
+      }
+      button.addEventListener('click', async () => {
+        button.disabled = true;
+        statusLine.textContent = '';
+        try {
+          await host.acknowledge(card.source, status.blob);
+          finished('✓ Acknowledged');
+        } catch (error) {
+          statusLine.textContent = error?.message || String(error);
+          statusLine.dataset.kind = 'error';
+        } finally {
+          button.disabled = false;
+        }
+      });
+      return;
+    }
+    const form = parseForm(file.text);
+    if (!form || form.error) throw new Error(form?.error || `${card.source} is not a form.`);
+    const pane = document.createElement('div');
+    pane.className = 'slate-card-form';
+    body.replaceChildren(pane, actions);
+    button.textContent = 'Send';
+    const fill = {
+      form, answers: {}, problems: new Map(), generation: 0, uid: uuid().slice(0, 8), busy: false, inPreview: true, readOnly: false,
+      person: host.person ? { name: String(host.person.name || ''), email: String(host.person.email || '') } : {},
+      serverFills: new Set(), hiddenKey: '', pane, statusEl: statusLine, submitEl: button, card: true,
+    };
+    setFillAnswers({}, fill);
+    pane.addEventListener('input', event => handleFillInput(event, fill));
+    pane.addEventListener('change', event => handleFillInput(event, fill));
+    pane.addEventListener('click', event => handlePhotoClick(event, fill));
+    if (status.done) statusLine.textContent = '✓ Sent. You can send it again.';
+    button.addEventListener('click', async () => {
+      if (fill.busy) return;
+      const problems = checkFill({}, fill);
+      if (problems.length) {
+        setFillStatus(problems.length === 1 ? '1 answer needs fixing.' : `${problems.length} answers need fixing.`, { kind: 'error' }, fill);
+        return;
+      }
+      setFillStatus('Sending…', { busy: true }, fill);
+      try {
+        const sent = await host.submit(card.source, submitAnswers(fill));
+        if (sent?.problems?.length) {
+          const unknown = setFillProblems(sent.problems, fill);
+          setFillStatus(sent.message || (unknown[0]?.message ?? 'Some answers need fixing.'), { kind: 'error', busy: false }, fill);
+          return;
+        }
+        setFillStatus('', { busy: false }, fill);
+        setFillAnswers({}, fill);
+        await renderFill(fill);
+        finished('✓ Sent');
+      } catch (error) {
+        setFillStatus(error?.message || String(error), { kind: 'error', busy: false }, fill);
+      }
+    });
+    await renderFill(fill);
+  }
+
+  /** A notice's text without its front matter. */
+  function splitNoticeText(text) {
+    const lines = String(text ?? '').replace(/\r\n?/g, '\n').split('\n');
+    if (lines[0]?.trimEnd() === '---') {
+      const end = lines.findIndex((line, i) => i > 0 && (line.trimEnd() === '---' || line.trimEnd() === '...'));
+      if (end > 0) return { body: lines.slice(end + 1).join('\n') };
+    }
+    return { body: lines.join('\n') };
   }
 
   // ---- Named embeds (```embed) ----------------------------------------------------------
@@ -2046,6 +2521,10 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
         if (index < lines.length) index += 1;
         if (diagramLanguage(language)) {
           html.push(diagramHtml(diagramLanguage(language), code.join('\n')));
+          continue;
+        }
+        if (cardLanguage(language)) {
+          html.push(cardHtml(code));
           continue;
         }
         const embed = embedName(language, code);
@@ -3513,6 +3992,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     pane.replaceChildren(fragment);
     hydrateDiagrams(pane);
     hydrateEmbeds(pane);
+    hydrateCards(pane);
     await hydrateAttachments(pane);
     if (generation !== state.changesGeneration) return plan.changes;
     hydrateWikiLinks(pane);
@@ -3604,7 +4084,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     if (state.fill) endFill('restart', { notify: false });
     // person ({ name, email }) fills in the @name and @email defaults (Metatrash 0.95.19).
     const person = options.person && typeof options.person === 'object' ? { name: String(options.person.name || ''), email: String(options.person.email || '') } : {};
-    state.fill = { form, answers: {}, problems: new Map(), generation: 0, uid: uuid().slice(0, 8), busy: false, inPreview, readOnly, person, serverFills: new Set(), hiddenKey: '' };
+    state.fill = { form, answers: {}, problems: new Map(), generation: 0, uid: uuid().slice(0, 8), busy: false, inPreview, readOnly, person, serverFills: new Set(), hiddenKey: '', pane: el.fillForm, statusEl: el.fillStatus, submitEl: el.fillSubmit };
     setFillAnswers(options.answers);
     el.fillTitle.textContent = fillTitle(state.fill);
     el.fillSubmit.textContent = String(options.submitLabel || 'Send');
@@ -3622,8 +4102,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
   }
 
   /** Answers as the host gave them, kept only for fields the form has, in the right shape. */
-  function setFillAnswers(answers) {
-    const fill = state.fill;
+  function setFillAnswers(answers, fill = state.fill) {
     if (!fill) return;
     const given = answers && typeof answers === 'object' ? answers : {};
     fill.answers = {};
@@ -3685,11 +4164,15 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     return fill.readOnly || fill.inPreview ? fill.form.title : `Filling in: ${fill.form.title}`;
   }
 
-  async function renderFill() {
-    const fill = state.fill;
+  /** Whether a fill still shows: the page's, or a dashboard card's (fill.card) still on the page. */
+  function fillAlive(fill) {
+    return Boolean(fill) && (fill.card ? fill.pane.isConnected : state.fill === fill);
+  }
+
+  async function renderFill(fill = state.fill) {
     if (!fill) return;
     const generation = ++fill.generation;
-    const pane = el.fillForm;
+    const pane = fill.pane;
     destroyMediaPlayers(pane);
     const visibility = fillVisibility(fill);
     fill.hiddenKey = visibility.key;
@@ -3701,8 +4184,9 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     placeFormMarks(pane, fill, hints);
     hydrateDiagrams(pane);
     hydrateEmbeds(pane);
+    hydrateCards(pane);
     await hydrateAttachments(pane);
-    if (state.fill !== fill || generation !== fill.generation) return;
+    if (!fillAlive(fill) || generation !== fill.generation) return;
     hydrateWikiLinks(pane);
     // The document's own task boxes and videos are not answers.
     pane.querySelectorAll('.task-checkbox').forEach(checkbox => { checkbox.disabled = true; });
@@ -3710,7 +4194,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     // Read only (a page that can't send it): the fields show, greyed out.
     pane.classList.toggle('form-read-only', fill.readOnly);
     if (fill.readOnly) pane.querySelectorAll('.form-field input, .form-field textarea, .form-field select').forEach(control => { control.disabled = true; });
-    showFillProblems();
+    showFillProblems({}, fill);
   }
 
   /** Puts a field's inputs in place of each field mark and a hint in place of each comment mark. */
@@ -3943,8 +4427,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     return canvas.toDataURL('image/jpeg', PHOTO_QUALITY);
   }
 
-  async function addPhotos(field, input) {
-    const fill = state.fill;
+  async function addPhotos(field, input, fill = state.fill) {
     const files = [...(input.files || [])];
     input.value = '';
     if (!fill || fill.readOnly || !files.length) return;
@@ -3958,36 +4441,34 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
         failed = true;
       }
     }
-    if (state.fill !== fill) return;
-    setPhotos(field, [...(fill.answers[field.name] || []), ...added]);
+    if (!fillAlive(fill)) return;
+    setPhotos(field, [...(fill.answers[field.name] || []), ...added], fill);
     if (failed) {
       fill.problems.set(field.name, 'A picture couldn’t be read; try another, or a JPEG or PNG.');
-      showFillProblems();
+      showFillProblems({}, fill);
     } else if (files.length > room) {
       fill.problems.set(field.name, room === 1 ? 'Only one more photo fits here.' : `Only ${room} more photos fit here.`);
-      showFillProblems();
+      showFillProblems({}, fill);
     }
   }
 
-  function setPhotos(field, photos) {
-    const fill = state.fill;
+  function setPhotos(field, photos, fill = state.fill) {
     fill.answers[field.name] = photos.slice(0, photoLimit(field));
-    if (fill.problems.delete(field.name) && !fill.problems.size && el.fillStatus.dataset.kind === 'error') setFillStatus('');
-    dispatchEditorEvent('slate:form-input', { name: field.name, answers: fillAnswers() });
-    void redrawFill(field.name, null);
+    if (fill.problems.delete(field.name) && !fill.problems.size && fill.statusEl.dataset.kind === 'error') setFillStatus('', {}, fill);
+    if (!fill.card) dispatchEditorEvent('slate:form-input', { name: field.name, answers: fillAnswers() });
+    void redrawFill(field.name, null, fill);
   }
 
-  function handlePhotoClick(event) {
+  function handlePhotoClick(event, fill = state.fill) {
     const button = event.target.closest('[data-photo-remove]');
     const wrap = button?.closest('.form-field');
-    const fill = state.fill;
     if (!button || !wrap || !fill || fill.readOnly) return;
     event.preventDefault();
     const field = fill.form.fields.find(f => f.name === wrap.dataset.field);
     if (!field) return;
     const photos = [...(fill.answers[field.name] || [])];
     photos.splice(Number(button.dataset.photoRemove), 1);
-    setPhotos(field, photos);
+    setPhotos(field, photos, fill);
   }
 
   function readFieldValue(wrap, field) {
@@ -3999,41 +4480,39 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     return wrap.querySelector('.form-control')?.value ?? '';
   }
 
-  function handleFillInput(event) {
-    const fill = state.fill;
+  function handleFillInput(event, fill = state.fill) {
     const wrap = event.target.closest('.form-field');
     if (!fill || !wrap || fill.readOnly) return;
     const field = fill.form.fields.find(f => f.name === wrap.dataset.field);
     if (!field) return;
     if (field.type === 'photo') {
-      if (event.type === 'change' && event.target.dataset.photoInput) void addPhotos(field, event.target);
+      if (event.type === 'change' && event.target.dataset.photoInput) void addPhotos(field, event.target, fill);
       return;
     }
     const value = readFieldValue(wrap, field);
     const before = JSON.stringify(fill.answers[field.name]);
     fill.answers[field.name] = value;
     if (fill.problems.delete(field.name)) {
-      showFillProblems();
-      if (!fill.problems.size && el.fillStatus.dataset.kind === 'error') setFillStatus('');
+      showFillProblems({}, fill);
+      if (!fill.problems.size && fill.statusEl.dataset.kind === 'error') setFillStatus('', {}, fill);
     }
     if (JSON.stringify(value) !== before) {
-      dispatchEditorEvent('slate:form-input', { name: field.name, answers: fillAnswers() });
+      if (!fill.card) dispatchEditorEvent('slate:form-input', { name: field.name, answers: fillAnswers() });
       // An answer that shows or hides questions (show-if) draws the form again.
-      if (fillVisibility(fill).key !== fill.hiddenKey) void redrawFill(field.name, event.target);
+      if (fillVisibility(fill).key !== fill.hiddenKey) void redrawFill(field.name, event.target, fill);
     }
   }
 
   /** Draws the form again, keeping the person in the control they were using. */
-  async function redrawFill(name, target) {
-    const fill = state.fill;
+  async function redrawFill(name, target, fill = state.fill) {
     if (!fill) return;
-    const scroll = el.fillForm.scrollTop;
+    const scroll = fill.pane.scrollTop;
     const caret = typeof target?.selectionStart === 'number' ? [target.selectionStart, target.selectionEnd] : null;
     const value = target?.type === 'radio' || target?.type === 'checkbox' ? target.value : null;
-    await renderFill();
-    if (state.fill !== fill) return;
-    el.fillForm.scrollTop = scroll;
-    const wrap = [...el.fillForm.querySelectorAll('.form-field')].find(w => w.dataset.field === name);
+    await renderFill(fill);
+    if (!fillAlive(fill)) return;
+    fill.pane.scrollTop = scroll;
+    const wrap = [...fill.pane.querySelectorAll('.form-field')].find(w => w.dataset.field === name);
     const control = value !== null
       ? [...(wrap?.querySelectorAll('input') ?? [])].find(input => input.value === value)
       : wrap?.querySelector('input:not([type="file"]), textarea, select, .form-photo-add input, .form-photo-remove');
@@ -4045,8 +4524,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
   }
 
   /** The answers to send: only the questions asked, without those the server fills in. */
-  function submitAnswers() {
-    const fill = state.fill;
+  function submitAnswers(fill = state.fill) {
     if (!fill) return {};
     const { asked } = fillVisibility(fill);
     const leave = serverFilled(fill);
@@ -4058,8 +4536,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
   }
 
   /** The answers as kept for a draft: photos are left out, as they are large; only Send takes them. */
-  function fillAnswers() {
-    const fill = state.fill;
+  function fillAnswers(fill = state.fill) {
     if (!fill) return {};
     const answers = JSON.parse(JSON.stringify(fill.answers));
     for (const field of fill.form.fields) if (field.type === 'photo') answers[field.name] = [];
@@ -4067,33 +4544,30 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
   }
 
   /** Checks every answer as the server will; shows the problems and returns them. */
-  function checkFill(options = {}) {
-    const fill = state.fill;
+  function checkFill(options = {}, fill = state.fill) {
     if (!fill) return [];
     const { shown } = fillVisibility(fill);
     // Auto flow: a step held back can't show its problems; the steps before it say what's missing.
     const problems = checkAnswers(fill.form, fill.answers, localToday(), { serverFills: serverFilled(fill) }).filter(p => shown.has(p.name));
     fill.problems = new Map(problems.map(p => [p.name, p.message]));
-    showFillProblems({ focus: options.focus !== false });
+    showFillProblems({ focus: options.focus !== false }, fill);
     return problems;
   }
 
   /** Shows problems the host was given (the server's, by field); returns those of unknown fields. */
-  function setFillProblems(problems = []) {
-    const fill = state.fill;
+  function setFillProblems(problems = [], fill = state.fill) {
     if (!fill) return [];
     const names = new Set(fill.form.fields.map(f => f.name));
     const known = (Array.isArray(problems) ? problems : []).filter(p => names.has(p?.name));
     fill.problems = new Map(known.map(p => [p.name, String(p.message || 'This answer needs fixing.')]));
-    showFillProblems({ focus: true });
+    showFillProblems({ focus: true }, fill);
     return (Array.isArray(problems) ? problems : []).filter(p => !names.has(p?.name));
   }
 
-  function showFillProblems(options = {}) {
-    const fill = state.fill;
+  function showFillProblems(options = {}, fill = state.fill) {
     if (!fill) return;
     let first = null;
-    el.fillForm.querySelectorAll('.form-field').forEach(wrap => {
+    fill.pane.querySelectorAll('.form-field').forEach(wrap => {
       const message = fill.problems.get(wrap.dataset.field) || '';
       const error = wrap.querySelector('.form-error');
       error.textContent = message;
@@ -4111,13 +4585,13 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     }
   }
 
-  function setFillStatus(text, options = {}) {
-    if (!state.fill) return;
-    el.fillStatus.textContent = String(text || '');
-    el.fillStatus.dataset.kind = options.kind || '';
+  function setFillStatus(text, options = {}, fill = state.fill) {
+    if (!fill) return;
+    fill.statusEl.textContent = String(text || '');
+    fill.statusEl.dataset.kind = options.kind || '';
     if (options.busy !== undefined) {
-      state.fill.busy = Boolean(options.busy);
-      el.fillSubmit.disabled = state.fill.busy;
+      fill.busy = Boolean(options.busy);
+      fill.submitEl.disabled = fill.busy;
     }
   }
 
@@ -4300,6 +4774,12 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
       },
       startFill(options = {}) {
         return startFill(options);
+      },
+      setCardHost(host) {
+        setCardHost(host);
+      },
+      refreshCards() {
+        refreshCards();
       },
       endFill() {
         return endFill('host');

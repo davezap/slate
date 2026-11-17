@@ -32,6 +32,8 @@ jobs:
         run: node test/blockquotes-check.mjs
       - name: Verify Markdown URL and HTML filtering
         run: node test/hostile-check.mjs
+      - name: Verify dashboard cards
+        run: node test/cards-check.mjs
       - uses: actions/upload-artifact@v4
         with:
           name: slate-component
@@ -40,3 +42,4 @@ jobs:
             slate.css
             slate-editor.d.ts
             mermaid/
+            charts/

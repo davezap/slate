@@ -1,4 +1,4 @@
-# Slate Markdown Editor Components — 0.22.0
+# Slate Markdown Editor Components — 0.24.0
 
 This project is the reusable Slate Markdown editor extracted from the current Wire integration.
 
@@ -8,10 +8,12 @@ Edit and Source are one [CodeMirror 6](https://codemirror.net/) editor: Source s
 
 ## What is included
 
-- `slate.js` — complete Slate 0.23.0 editor/component, built from `src/` (don't edit it by hand).
+- `slate.js` — complete Slate 0.24.0 editor/component, built from `src/` (don't edit it by hand).
 - `src/slate.js` — the editor source; `src/source-editor.js` — the CodeMirror editor behind Edit and Source; `src/live-preview.js` — Edit mode's Live Preview drawing; `src/changes.js` — the block and word comparison behind Show Changes; `src/forms.js` — form templates: fields, answer checks and fill mode's text.
 - `slate.css` — generic scoped component styling.
 - `mermaid/` — [Mermaid](https://mermaid.js.org/) for diagrams, built from `src/mermaid-entry.js`: `mermaid.js` plus a chunk per diagram type. Hosts copy the folder next to `slate.js`; it is loaded only when a document has a diagram (see **Diagrams**).
+- `charts/charts.js` — [Chart.js](https://www.chartjs.org/) 4.5.1 for dashboard cards, built from `src/charts-entry.js`. Hosts copy the folder next to `slate.js`; it is loaded only when a page has a pie, bar or line card (see **Dashboard cards**).
+- `src/cards.js` — dashboard cards: reading a ```` ```card ```` block, its `show-if` conditions, number formats and table sorting.
 - `themes/green.css` — the current Wire light-theme overrides (green and gold), kept separately so the component can be reused elsewhere without forcing that branding.
 - `slate-editor.d.ts` — TypeScript declarations for the host API.
 - `index.html` — standalone persistent editor using the green theme.
@@ -26,13 +28,13 @@ Edit and Source are one [CodeMirror 6](https://codemirror.net/) editor: Source s
 
 ```powershell
 npm install
-npm run build        # minified slate.js and mermaid/, as committed and shipped
+npm run build        # minified slate.js, mermaid/ and charts/, as committed and shipped
 npm run build:dev    # readable slate.js with an inline source map, for debugging
 npm run watch        # rebuild on every change while developing
 ```
 
 Commit the rebuilt `slate.js` (and `mermaid/` when Mermaid changes) with the source change, so hosts can keep copying the files.
-`npm run build:slate` and `npm run build:mermaid` build one of them.
+`npm run build:slate`, `npm run build:mermaid` and `npm run build:charts` build one of them.
 
 ## Run the standalone editor
 
@@ -107,6 +109,8 @@ const editor = await window.SlateMarkdownEditor.mount(host, {
   resolveUrl: null,
   outlinePanel: true,
   diagramsUrl: '',              // where mermaid/mermaid.js is; default: next to slate.js
+  chartsUrl: '',                // where charts/charts.js is; default: next to slate.js
+  cardHost: null,               // answers dashboard cards (see Dashboard cards)
 });
 ```
 
@@ -139,6 +143,49 @@ support-card
 Only names the edition lists are drawn. Any other name, a block with more than one line, or an embed that fails stays an ordinary code block, so a document still can't carry script or styles of its own. The public edition has no embeds, so there every `embed` block is code. In Edit an embed is a block like a diagram: its ✎ button shows the source; clicks on the embed's own controls stay with it.
 
 An edition gives `embeds` as `{ name: { label, mount(element) } }`. Names are lower case letters, digits and hyphens. `mount` fills the element it is given (the label is its accessible name) and must stop its own work (animation frames, listeners) once the element has left the document, because Slate draws a block again whenever the document is drawn again. Its styles belong in the host's stylesheet. `test/embeds-check.mjs` builds Slate with a test edition and checks all of this.
+
+### Dashboard cards (`card`)
+
+Since 0.24.0 a fenced block tagged `card` is a dashboard card. It holds `key: value` lines and, for a Markdown card, its own text after a line `---`. The rest of the document stays ordinary Markdown, so a dashboard is a normal `.md` file:
+
+````markdown
+```card
+title: Open jobs
+size: wide
+show: pie
+source: jobs/
+where: state!=done
+group: type
+```
+````
+
+| Key | Meaning |
+| --- | --- |
+| `title` | The card's heading (120 characters at most). |
+| `size` | `normal`, `wide` or `full`. Cards sit side by side and wrap; `full` takes the row. |
+| `show` | `count`, `list`, `table`, `pie`, `bar`, `line`, `markdown` or `form`. |
+| `source` | A folder of `.md` files (their front matter, or a filed form copy's answers, are the fields) or a `.csv` file; for `markdown` and `form`, a `.md` file. Relative to the dashboard. |
+| `where` | Conditions on fields, as in forms' `show-if`, separated by `;`. `@me` is the viewer and `today` today's date. |
+| `group` | The field to split by (needed by pie, bar and line). |
+| `measure` | `count` (default), or `sum`, `avg`, `min` or `max` of a field, such as `sum hours`. |
+| `sort`, `limit`, `columns` | Rows by `field` (`-field` largest first); groups by `value` or `group` (`-` first for descending; default largest value first, and a line's groups in order). `limit` is 1 to 500; `columns` the fields a list or table shows. |
+| `show-if` | When the card shows, from `@count`, `@time`, `@today`, `@weekday`, `@me` and `@done`, such as `@count>0` or `@weekday=Mon|Fri; @time>=16:00`. |
+
+The data comes from the host, never from the document: Slate passes `{ source, where, group, measure, sort, limit, columns, today }` to the host, which answers with the viewer's own access (Slate Viewer asks the Metatrash server). Give the host with `cardHost` or `setCardHost()`:
+
+```javascript
+editor.setCardHost({
+  person: { name: 'pat', email: 'pat@example.com' },
+  async query(q) { /* { kind: 'rows'|'groups'|'count', fields, rows: [{ file, values }], groups: [{ group, count, value }], count, value, measure, truncated } */ },
+  async read(path) { /* { text } */ },
+  async notices(paths) { /* [{ path, blob, kind: 'notice'|'form'|'missing', done }] */ },
+  async acknowledge(path, blob) {},
+  async submit(path, answers) { /* a receipt, or { problems: [{ name, message }] } */ },
+  open(path) {},          // optional: a row's link or a card title was pressed
+});
+```
+
+Paths Slate gives `read`, `notices`, `acknowledge` and `submit` are the card's `source`, relative to the dashboard, so the host resolves them (and sends the dashboard's path as the query's `base` to Metatrash); `open` gets a row's file as the query answered it, relative to the space. Without a host a card says that its data shows in Slate Viewer. A `form` card shows a notice (a `.md` file with no fields) with an Acknowledge button, or a form filled in on the card and sent with `submit`; `@done` is true once the viewer has done it. Cards refresh every minute while the page is visible and when the window regains focus; `refreshCards()` asks again now. Pie, bar and line charts load `charts/charts.js` (Chart.js, about 180 KB) from next to `slate.js`, or from `chartsUrl`. Chart colours are `--slate-chart-1` to `--slate-chart-8`, which a host's stylesheet can override. A card with a mistake shows the message above its source. `test/cards-check.mjs` checks all of this in a browser.
 
 ### `outlinePanel`
 
@@ -214,6 +261,8 @@ hideChanges()           // back to the document; returns what was shown
 isShowingChanges()
 getChangesState()       // { showing, label, toLabel, changes }
 setChangesToggle(handler | null)  // a "± Changes" toolbar toggle; on calls handler, which calls showChanges()
+setCardHost(host | null)          // answers dashboard cards (see Dashboard cards)
+refreshCards()                    // ask the host for every card's data again now
 isDocumentComplete()
 getCompletionState()
 onDocumentComplete(callback, options?)

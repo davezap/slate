@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.24.0 — 2026-11-18
+
+- Dashboard cards: a fenced block tagged `card` (`key: value` lines, and for a Markdown card its own text after `---`) is drawn as a card in Preview, Edit (a block like a diagram, ✎ for the source), Show Changes and print. `show` is count, list, table (headers sort), pie, bar, line, markdown or form; `size` normal, wide or full, side by side in a grid; `show-if` uses `@count`, `@time`, `@today`, `@weekday`, `@me` and `@done`. The data comes from the host (`cardHost` option, `setCardHost()`, `refreshCards()`), which answers with the viewer's own access; Slate Viewer 0.44.0 asks Metatrash Core 0.99.0. A card with a mistake shows the message above its source. New `src/cards.js`.
+- Charts: pie, bar and line cards load `charts/charts.js` (Chart.js 4.5.1, built from `src/charts-entry.js` by `npm run build:charts`, part of `npm run build`) from next to `slate.js` or `chartsUrl`, only when a page has one. Colours are `--slate-chart-1` to `--slate-chart-8` per theme, in a fixed order checked for colour-blind separation against each theme's panel; a pie's slices take them in order (past eight, the smallest share one slice, Other), bars and lines are one colour, and a count is in the text colour. Charts draw on a canvas, so a page without `style-src 'unsafe-inline'` allows them.
+- Form cards: a notice (a `.md` file with no fields) shows its text and an Acknowledge button; a form is filled in on the card and sent through the host, with the server's refusals shown by field. Fill mode's code now works on a fill object of its own, so the page's fill and any number of card fills don't share state; the page's fill behaves as before.
+- `test/cards-check.mjs` (with `test/cards-page.js`, a pretend host) serves the folder over HTTP under a strict Content-Security-Policy and checks parsing, every card kind, sorting, links, a notice, a refused then accepted form, Edit, no host, the grid and that nothing but CodeMirror's own `<style>` is refused. Claude ran it, `embeds-check`, `hostile-check`, `forms-flow-check` and `blockquotes-check`, and a browser check of the page's fill mode; all passed. See docs/release-0.24.0.md.
+
 ## 0.23.1 — 2026-11-17
 
 - The optional light theme is now `themes/green.css` (was `themes/bartco.css`, same rules); `index.html`, the README and an old CHANGELOG line follow it. No editor change. Released with Company 0.96.55; see docs/release-0.23.1.md.

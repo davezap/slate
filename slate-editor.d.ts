@@ -49,6 +49,52 @@ export interface SlateMountOptions {
   outlinePanel?: boolean;
   /** Full URL of mermaid/mermaid.js, loaded for ```mermaid diagrams. Default: next to slate.js. */
   diagramsUrl?: string;
+  /** Full URL of charts/charts.js, loaded for pie, bar and line cards. Default: next to slate.js. */
+  chartsUrl?: string;
+  /** Answers ```card blocks (0.24.0). */
+  cardHost?: SlateCardHost | null;
+}
+
+/** What a dashboard card asks the host for (0.24.0). */
+export interface SlateCardQuery {
+  source: string;
+  where?: string;
+  group?: string;
+  measure?: string;
+  sort?: string;
+  limit?: number;
+  columns?: string;
+  /** The viewer's date, YYYY-MM-DD, for `today` in where. */
+  today: string;
+}
+
+export interface SlateCardQueryResult {
+  kind: "rows" | "groups" | "count";
+  fields: string[];
+  rows?: { file?: string; line?: number; values: Record<string, string> }[];
+  groups?: { group: string; count: number; value: number }[];
+  count: number;
+  value: number;
+  measure: string;
+  truncated?: boolean;
+}
+
+export interface SlateNoticeStatus {
+  path: string;
+  blob?: string;
+  kind: "notice" | "form" | "missing";
+  done: boolean;
+}
+
+export interface SlateCardHost {
+  person?: { name?: string; email?: string };
+  query(query: SlateCardQuery): Promise<SlateCardQueryResult>;
+  read(path: string): Promise<{ text: string }>;
+  notices(paths: string[]): Promise<SlateNoticeStatus[]>;
+  acknowledge(path: string, blob: string): Promise<unknown>;
+  /** A receipt, or { problems } when the server refuses answers. */
+  submit(path: string, answers: Record<string, unknown>): Promise<{ problems?: SlateFormProblem[]; message?: string } | unknown>;
+  open?(path: string): void;
 }
 
 export interface SlateOutlineHeading {
@@ -287,6 +333,10 @@ export interface SlateEditorApi {
   setFormProblems(problems: SlateFormProblem[]): SlateFormProblem[];
   /** A message in the bar; kind 'error' or 'done' colours it, busy disables Send. */
   setFormStatus(text: string, options?: { kind?: 'error' | 'done' | ''; busy?: boolean }): void;
+  /** Answers ```card blocks; null shows each card's "data shows in Slate Viewer" message. */
+  setCardHost(host: SlateCardHost | null): void;
+  /** Asks the host for every card's data again now. */
+  refreshCards(): void;
   isDocumentComplete(): boolean;
   getCompletionState(): SlateCompletionState;
   onDocumentComplete(
