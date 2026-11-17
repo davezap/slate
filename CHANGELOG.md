@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.23.1 — 2026-11-17
+
+- The optional light theme is now `themes/green.css` (was `themes/bartco.css`, same rules); `index.html`, the README and an old CHANGELOG line follow it. No editor change. Released with Company 0.96.55; see docs/release-0.23.1.md.
+
 ## 0.23.0 — 2026-11-14
 
 - Named embeds: an edition (`src/edition.js`) can offer `embeds`, `{ name: { label, mount(element) } }`, and a fenced block tagged `embed` whose only line is one of those names is drawn by it in Preview, Edit (as a block like a diagram, with a ✎ button for the source), Show Changes and fill mode. Any other name, a block of several lines or an embed that throws stays an ordinary code block, so documents still can't carry script or styles. The public edition has none. Collumii's site uses it for the support card on its home page (Company 0.96.46).
@@ -151,5 +155,5 @@
 - Extracted the current Wire-bundled Slate 0.9.2 editor into a standalone reusable component project.
 - Kept all editor markup, navigation, formatting controls and behaviour inside `slate.js`.
 - Preserved direct host mounting, scoped CSS, host-controlled Markdown, attachment callbacks, outline navigation, document completion, read-only Preview and interactive checklist support.
-- Split Wire's Bartco light-theme overrides into optional `themes/bartco.css` so the editor can be reused without Bartco branding while retaining the exact theme when desired.
+- Split Wire's light-theme overrides into an optional theme file (now `themes/green.css`) so the editor can be reused without that branding while retaining the exact theme when desired.
 - Added standalone and host-integration examples plus TypeScript declarations and attachment API documentation.

@@ -12,9 +12,9 @@ Edit and Source are one [CodeMirror 6](https://codemirror.net/) editor: Source s
 - `src/slate.js` — the editor source; `src/source-editor.js` — the CodeMirror editor behind Edit and Source; `src/live-preview.js` — Edit mode's Live Preview drawing; `src/changes.js` — the block and word comparison behind Show Changes; `src/forms.js` — form templates: fields, answer checks and fill mode's text.
 - `slate.css` — generic scoped component styling.
 - `mermaid/` — [Mermaid](https://mermaid.js.org/) for diagrams, built from `src/mermaid-entry.js`: `mermaid.js` plus a chunk per diagram type. Hosts copy the folder next to `slate.js`; it is loaded only when a document has a diagram (see **Diagrams**).
-- `themes/bartco.css` — the current Wire/Bartco light-theme overrides, kept separately so the component can be reused elsewhere without forcing Bartco branding.
+- `themes/green.css` — the current Wire light-theme overrides (green and gold), kept separately so the component can be reused elsewhere without forcing that branding.
 - `slate-editor.d.ts` — TypeScript declarations for the host API.
-- `index.html` — standalone persistent editor using the Bartco theme.
+- `index.html` — standalone persistent editor using the green theme.
 - `examples/host-controlled.html` — embed Slate in another application while the host owns the Markdown.
 - `examples/read-only-checklist.html` — read-only instructions with interactive task checkboxes, matching Wire's published-instructions use case.
 - `examples/attachment-handler.html` — host attachment callback example.
@@ -79,13 +79,13 @@ The standalone page uses Slate's local IndexedDB document and attachment storage
 
 Slate adds `.slate-editor-host` to the supplied host element. All component styles are scoped below that class, so Slate can live directly inside another application without an iframe.
 
-## Optional Bartco/Wire theme
+## Optional green (Wire) theme
 
 Load the theme after the base stylesheet:
 
 ```html
 <link rel="stylesheet" href="slate.css">
-<link rel="stylesheet" href="themes/bartco.css">
+<link rel="stylesheet" href="themes/green.css">
 ```
 
 The optional theme contains the green/gold document styling currently used by Wire. Removing it leaves Slate's original neutral/purple component theme intact.
@@ -486,4 +486,4 @@ Metatrash's website embeds Slate too, read-only (Slate 0.19.5 since Metatrash 0.
 
 ## Relationship to Wire
 
-The editor core in this package is copied from Wire's bundled Slate 0.9.2. The only packaging change is that the later Bartco light-theme CSS override has been separated into `themes/bartco.css`; loading that file after `slate.css` reproduces the Wire appearance while allowing other web apps to use the generic theme.
+The editor core in this package is copied from Wire's bundled Slate 0.9.2. The only packaging change is that the later light-theme CSS override has been separated into `themes/green.css`; loading that file after `slate.css` reproduces the Wire appearance while allowing other web apps to use the generic theme.
