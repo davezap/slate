@@ -537,6 +537,57 @@
   background: var(--panel-muted);
 }
 .slate-editor-host .markdown-body pre code{ padding: 0; border: 0; background: transparent; font-size: 13px; }
+/* Copy button on code blocks (0.25.0): faint at the top right, clearer on hover or focus. */
+.slate-editor-host .markdown-body .slate-code{ position: relative; margin: 1em 0; }
+.slate-editor-host .markdown-body .slate-code > pre{ margin: 0; }
+.slate-editor-host .markdown-body .slate-code-copy{
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  min-width: 26px;
+  padding: 0 5px;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font: 12px/1 var(--font-ui, inherit);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity .15s ease, background-color .15s ease;
+}
+.slate-editor-host .markdown-body .slate-code-copy svg{
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.slate-editor-host .markdown-body .slate-code:hover .slate-code-copy,
+.slate-editor-host .markdown-body .slate-code-copy:focus-visible,
+.slate-editor-host .markdown-body .slate-code-copy.is-copied,
+.slate-editor-host .markdown-body .slate-code-copy.is-failed{ opacity: .85; }
+.slate-editor-host .markdown-body .slate-code-copy:hover{
+  opacity: 1;
+  color: var(--text);
+  border-color: var(--border);
+  background: var(--panel);
+}
+.slate-editor-host .markdown-body .slate-code-copied{ display: none; }
+.slate-editor-host .markdown-body .slate-code-copy.is-copied .slate-code-copied{ display: inline; }
+.slate-editor-host .markdown-body .slate-code-copy.is-copied{ color: var(--accent); }
+@media (hover: none){
+  .slate-editor-host .markdown-body .slate-code-copy{ opacity: .55; }
+}
+@media print{
+  .slate-editor-host .markdown-body .slate-code-copy{ display: none; }
+}
 /* Plain text (0.24.1): a file that isn't Markdown shows as it is, in the editor's font. */
 .slate-editor-host .markdown-body pre.slate-plain-text{
   margin: 0;

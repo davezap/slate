@@ -2,6 +2,7 @@ import * as edition from './edition.js';
 import { createSourceEditor } from './source-editor.js';
 import { markWordChanges, planChanges } from './changes.js';
 import { QUERY_SHOWS, cardColumns, cardContext, conditionsHold, formatNumber, parseCard, sortRows } from './cards.js';
+import { closesFence, fenceEnd, openFence, replaceCodeSpans, unindentFenced } from './fences.js';
 import { askedFields, checkAnswers, defaultAnswer, flowHidden, hiddenLines, isFormTemplate, localToday, parseForm, fillMarkdown, photoLimit, showIfText } from './forms.js';
 
 (() => {
@@ -10,7 +11,11 @@ import { askedFields, checkAnswers, defaultAnswer, flowHidden, hiddenLines, isFo
   // Where slate.js was loaded from, to find mermaid/ next to it.
   const SCRIPT_URL = document.currentScript?.src || '';
 
-  const APP_VERSION = '0.24.2';
+  const APP_VERSION = '0.25.0';
+  /** The Copy button on code blocks (0.25.0, see copyCodeBlock). */
+  const COPY_BUTTON = '<button type="button" class="slate-code-copy" title="Copy" aria-label="Copy to the clipboard" contenteditable="false">'
+    + '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15V5a2 2 0 0 1 2-2h8"></path></svg>'
+    + '<span class="slate-code-copied" aria-hidden="true">Copied</span></button>';
   const DB_NAME = 'slate-markdown-editor-db';
   const DB_VERSION = 1;
   const NODE_STORE = 'documents';
@@ -712,12 +717,13 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     while (index < lines.length) {
       const line = lines[index];
 
-      if (/^\s*```/.test(line)) {
+      const fence = openFence(line);
+      if (fence) {
         const code = [line];
         index += 1;
         while (index < lines.length) {
           code.push(lines[index]);
-          const isClosingFence = /^\s*```/.test(lines[index]);
+          const isClosingFence = closesFence(lines[index], fence);
           index += 1;
           if (isClosingFence) break;
         }
@@ -1129,16 +1135,27 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     }
 
     if (rest.startsWith('`')) {
-      const close = source.indexOf('`', index + 1);
-      if (close !== -1) {
-        const wrapper = document.createElement('code');
-        wrapper.className = 'md-inline-element';
-        setMarkdownRange(wrapper, 'code', baseOffset + index, baseOffset + close + 1, baseOffset + index + 1, baseOffset + close);
-        wrapper.appendChild(createMarkdownMarker('`'));
-        wrapper.appendChild(createEditableTextNode(source.slice(index + 1, close)));
-        wrapper.appendChild(createMarkdownMarker('`'));
-        return { node: wrapper, end: close + 1 };
+      // A code span opens with a run of backticks and closes at the next run as long (0.25.0),
+      // so ```` ```card ```` shows ```card. One space inside each end is padding.
+      let run = 1;
+      while (rest[run] === '`') run += 1;
+      let close = -1;
+      for (let at = source.indexOf('`', index + run); at !== -1; ) {
+        let length = 1;
+        while (source[at + length] === '`') length += 1;
+        if (length === run) { close = at; break; }
+        at = source.indexOf('`', at + length);
       }
+      if (close === -1) return { node: createEditableTextNode(rest.slice(0, run)), end: index + run };
+      const inner = source.slice(index + run, close);
+      const pad = inner.length > 2 && inner.startsWith(' ') && inner.endsWith(' ') && inner.trim() ? 1 : 0;
+      const wrapper = document.createElement('code');
+      wrapper.className = 'md-inline-element';
+      setMarkdownRange(wrapper, 'code', baseOffset + index, baseOffset + close + run, baseOffset + index + run + pad, baseOffset + close - pad);
+      wrapper.appendChild(createMarkdownMarker('`'.repeat(run) + ' '.repeat(pad)));
+      wrapper.appendChild(createEditableTextNode(inner.slice(pad, inner.length - pad)));
+      wrapper.appendChild(createMarkdownMarker(' '.repeat(pad) + '`'.repeat(run)));
+      return { node: wrapper, end: close + run };
     }
 
     // A long run (a form's ______ blank, a **** divider) is text, not empty emphasis.
@@ -1737,44 +1754,45 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
   function detectLiveBlocks(markdown) {
     const lines = markdown.split('\n');
     const blocks = [];
-    let inFence = false;
+    let inFence = null;
     for (let index = 0; index < lines.length; index += 1) {
       const line = lines[index];
-      if (!inFence && /^\s*```/.test(line) && cardLanguage(line.trim().slice(3))) {
+      const fence = inFence ? null : openFence(line);
+      if (fence && cardLanguage(fence.info)) {
         // A dashboard card, drawn as a block up to its closing fence (an unclosed one stays code).
-        let last = index + 1;
-        while (last < lines.length && !/^\s*```/.test(lines[last])) last += 1;
-        if (last < lines.length) {
+        const last = fenceEnd(lines, index, fence);
+        if (last >= 0) {
           blocks.push({ type: 'card', fromLine: index, toLine: last, source: lines.slice(index, last + 1).join('\n') });
           index = last;
           continue;
         }
       }
-      if (!inFence && /^\s*```/.test(line) && embedLanguage(line.trim().slice(3))) {
+      if (fence && embedLanguage(fence.info)) {
         // A named embed, drawn as a block like a diagram when the name is one the edition has.
-        let last = index + 1;
-        while (last < lines.length && !/^\s*```/.test(lines[last])) last += 1;
-        if (last < lines.length && embedName(line.trim().slice(3), lines.slice(index + 1, last))) {
+        const last = fenceEnd(lines, index, fence);
+        if (last >= 0 && embedName(fence.info, lines.slice(index + 1, last))) {
           blocks.push({ type: 'embed', fromLine: index, toLine: last, source: lines.slice(index, last + 1).join('\n') });
           index = last;
           continue;
         }
       }
-      if (!inFence && /^\s*```/.test(line) && diagramLanguage(line.trim().slice(3))) {
+      if (fence && diagramLanguage(fence.info)) {
         // A diagram, drawn as a block up to its closing fence (an unclosed one stays code).
-        let last = index + 1;
-        while (last < lines.length && !/^\s*```/.test(lines[last])) last += 1;
-        if (last < lines.length) {
+        const last = fenceEnd(lines, index, fence);
+        if (last >= 0) {
           blocks.push({ type: 'diagram', fromLine: index, toLine: last, source: lines.slice(index, last + 1).join('\n') });
           index = last;
           continue;
         }
       }
-      if (/^\s*```/.test(line)) {
-        inFence = !inFence;
+      if (fence) {
+        inFence = fence;
         continue;
       }
-      if (inFence) continue;
+      if (inFence) {
+        if (closesFence(line, inFence)) inFence = null;
+        continue;
+      }
 
       if (isTableStart(lines, index)) {
         let last = index + 1;
@@ -2520,12 +2538,13 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     while (index < lines.length) {
       const line = lines[index];
 
-      if (/^\s*```/.test(line)) {
-        const language = line.trim().slice(3).trim();
+      const fence = openFence(line);
+      if (fence) {
+        const language = fence.info;
         const code = [];
         index += 1;
-        while (index < lines.length && !/^\s*```/.test(lines[index])) {
-          code.push(lines[index]);
+        while (index < lines.length && !closesFence(lines[index], fence)) {
+          code.push(unindentFenced(lines[index], fence));
           index += 1;
         }
         if (index < lines.length) index += 1;
@@ -2543,7 +2562,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
           continue;
         }
         const className = language ? ` class="language-${escapeAttribute(language)}"` : '';
-        html.push(`<pre><code${className}>${escapeHtml(code.join('\n'))}</code></pre>`);
+        html.push(`<div class="slate-code"><pre><code${className}>${escapeHtml(code.join('\n'))}</code></pre>${COPY_BUTTON}</div>`);
         continue;
       }
 
@@ -2639,7 +2658,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
 
   function isBlockStart(lines, index) {
     const line = lines[index];
-    return /^\s*```/.test(line) || /^(#{1,6})\s+/.test(line) || /^\s*>/.test(line) ||
+    return !!openFence(line) || /^(#{1,6})\s+/.test(line) || /^\s*>/.test(line) ||
       /^\s*((?:[-+*])|(?:\d+\.))\s+/.test(line) ||
       /^\s*((\*\s*){3,}|(-\s*){3,}|(_\s*){3,})\s*$/.test(line) ||
       isTableStart(lines, index);
@@ -2662,7 +2681,8 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     const tokens = [];
     let value = escapeHtml(stripComments(raw));
 
-    value = value.replace(/`([^`]+)`/g, (_, code) => tokenise(tokens, `<code>${code}</code>`));
+    // Code spans of any length (0.25.0): ```` ```card ```` shows ```card.
+    value = replaceCodeSpans(value, code => tokenise(tokens, `<code>${code}</code>`));
 
     // A few plain HTML tags, such as <br> to break a line inside a table cell. Only the bare tag
     // names in INLINE_HTML_TAGS, with no attributes; anything else stays as literal text.
@@ -2860,6 +2880,46 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
 
   function handlePreviewClick(event) {
     if (event.target.closest('.wiki-link')) event.preventDefault();
+    const copy = event.target.closest('.slate-code-copy');
+    if (copy) {
+      event.preventDefault();
+      event.stopPropagation();
+      void copyCodeBlock(copy);
+    }
+  }
+
+  // ---- Copy button on code blocks (0.25.0) ------------------------------------------------
+  // Every fenced block that shows text gets a faint Copy button at its top right; cards,
+  // diagrams and embeds draw something else and have none. It copies the block's text as
+  // written, without the fences.
+  async function copyCodeBlock(button) {
+    const code = button.closest('.slate-code')?.querySelector('pre code');
+    if (!code) return;
+    const text = code.textContent || '';
+    let done = false;
+    try {
+      await navigator.clipboard.writeText(text);
+      done = true;
+    } catch {
+      // Older browsers and some webviews: copy a selection instead.
+      const area = document.createElement('textarea');
+      area.value = text;
+      area.setAttribute('readonly', '');
+      area.style.position = 'fixed';
+      area.style.opacity = '0';
+      document.body.append(area);
+      area.select();
+      try { done = document.execCommand('copy'); } catch { done = false; }
+      area.remove();
+    }
+    button.classList.toggle('is-copied', done);
+    button.classList.toggle('is-failed', !done);
+    button.title = done ? 'Copied' : 'Copy failed: select the text and copy it';
+    clearTimeout(button.slateCopyTimer);
+    button.slateCopyTimer = setTimeout(() => {
+      button.classList.remove('is-copied', 'is-failed');
+      button.title = 'Copy';
+    }, 1600);
   }
 
 
@@ -2948,7 +3008,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     const roots = [];
     const flat = [];
     const stack = [];
-    let inFence = false;
+    let inFence = null;
     let inComment = false;
     let total = 0;
     let checked = 0;
@@ -2964,11 +3024,15 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
         if (line.includes('-->')) inComment = false;
         return;
       }
-      if (/^\s*```/.test(line)) {
-        inFence = !inFence;
+      if (inFence) {
+        if (closesFence(line, inFence)) inFence = null;
         return;
       }
-      if (inFence) return;
+      const fence = openFence(line);
+      if (fence) {
+        inFence = fence;
+        return;
+      }
       if (/^\s*<!--/.test(line) && !/^\s*<!--[\s\S]*?-->/.test(line)) {
         inComment = true;
         return;

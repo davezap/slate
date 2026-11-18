@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.25.0 — 2026-11-19
+
+- **Longer fences hold shorter ones**: a fenced block closes only on a line of the same character (backticks or tildes), at least as long as the one that opened it, with nothing else on it, as in CommonMark. So a block opened with four backticks can show a three-backtick `card` block as text, as the dashboards guide does; before, the first ``` inside it ended it. `~~~` fences now work too, and a block inside a list item loses the list item's indent. Preview, Edit's blocks and the outline use the new `src/fences.js`.
+- **Code spans of any length**: ```` ```card ```` shows ```card. A code span opens with a run of backticks and closes at the next run exactly as long; one space just inside each end is padding. Both Preview renderers (`inlineMarkdown` and the source-mapped paragraphs) use it. A run with no closer stays as typed.
+- **Copy button on code blocks**: every fenced block that shows text (any language, or none) has a faint copy icon at its top right, clearer on hover or keyboard focus and always faint on touch screens. It copies the block's text without the fences and shows "Copied" for a moment; cards, diagrams and embeds have none, and it doesn't print. `slate.css` `.slate-code`, `.slate-code-copy`.
+- `test/code-blocks-check.mjs` checks all three. Claude ran it with `blockquotes-check`, `cards-check`, `embeds-check`, `forms-flow-check` and `hostile-check`, which all passed. See docs/release-0.25.0.md.
+
 ## 0.24.2 — 2026-11-18
 
 - With the formatting buttons hidden (plain text, Show Changes, filling a form), Edit | Preview | Source stay at the right of the toolbar, as in Preview, instead of moving to the left. `slate.css`.
