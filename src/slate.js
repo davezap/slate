@@ -183,6 +183,8 @@ import { askedFields, checkAnswers, defaultAnswer, flowHidden, hiddenLines, isFo
     attachmentHandler: null,
     attachmentBusy: false,
     interactiveTasks: false,
+    // Plain text (Slate 0.24.1): Preview shows the text as it is, the editor has no Markdown.
+    plainText: false,
     resolveUrl: null,
     diagramsUrl: '',
     outlinePanel: true,
@@ -672,6 +674,14 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
 
     destroyMediaPlayers(el.previewPane);
     const generation = ++state.liveRenderGeneration;
+    if (state.plainText) {
+      const pre = document.createElement('pre');
+      pre.className = 'slate-plain-text';
+      pre.textContent = note.content || '';
+      el.previewPane.replaceChildren(pre);
+      updateDocumentOutline();
+      return;
+    }
     const fragment = document.createDocumentFragment();
 
     const content = ensureTrailingBlankLine(note.content || '');
@@ -4684,6 +4694,21 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
       setReadOnly(readOnly) {
         return applyReadOnly(readOnly);
       },
+      /**
+       * Plain text (Slate 0.24.1): Preview shows the document's text as it is, in the editor's
+       * font, and Edit and Source edit it without Markdown. For a file that isn't Markdown.
+       */
+      async setPlainText(on) {
+        const next = Boolean(on);
+        state.plainText = next;
+        el.app.dataset.plainText = String(next);
+        el.markdownEditor.plainText = next;
+        if (state.editorMode === 'view') await renderPreview();
+        return next;
+      },
+      isPlainText() {
+        return state.plainText;
+      },
       setInteractiveTasks(enabled) {
         state.interactiveTasks = Boolean(enabled);
         applyPreviewInteractivity();
@@ -4826,7 +4851,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
       'isOutlineOpen', 'setOutlineOpen', 'getOutline', 'revealLine', 'getTopLine', 'compare', 'endCompare',
       'isComparing', 'getCompareState', 'showChanges', 'hideChanges', 'isShowingChanges', 'getChangesState', 'setChangesToggle',
       'getForm', 'isForm', 'startFill', 'endFill', 'isFilling', 'getFillState', 'getFormAnswers', 'setFormAnswers', 'checkForm', 'setFormProblems', 'setFormStatus', 'selectSourceRange', 'getSourceSelection', 'restoreView', 'setSourceHighlights', 'isDocumentComplete', 'getCompletionState',
-      'onDocumentComplete', 'focus'
+      'onDocumentComplete', 'focus', 'setPlainText', 'isPlainText'
     ];
     methodNames.forEach(name => {
       facade[name] = (...args) => mountedApi[name](...args);

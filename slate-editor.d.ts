@@ -255,6 +255,13 @@ export interface SlateEditorApi {
   getWorkspaceMode(): SlateWorkspaceMode;
   setWorkspaceMode(mode: SlateWorkspaceMode): Promise<SlateWorkspaceMode | void>;
   setReadOnly(readOnly: boolean): Promise<SlateWorkspaceMode>;
+  /**
+   * Plain text (Slate 0.24.1): Preview shows the document's text as it is, in the editor's font,
+   * and Edit and Source edit it without Markdown highlighting or live preview. For files that
+   * aren't Markdown (.txt, .csv, source code). Resolves to the new setting.
+   */
+  setPlainText(on: boolean): Promise<boolean>;
+  isPlainText(): boolean;
   setInteractiveTasks(enabled: boolean): boolean;
   setAttachmentHandler(handler: SlateAttachmentHandler | null): void;
   isOutlineOpen(): boolean;

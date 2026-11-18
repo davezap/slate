@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.24.1 — 2026-11-18
+
+- **Plain text**: `setPlainText(true)` (and `isPlainText()`) is for a file that isn't Markdown, such as a .txt, a .csv or C source. Preview shows its text as it is, in the editor's font (`pre.slate-plain-text`), with no Markdown, cards or diagrams; Edit and Source edit it with no Markdown language, highlighting, live preview or spell check, and the formatting buttons are hidden. `src/slate.js`, `src/source-editor.js`, `slate.css`, `slate-editor.d.ts`. Slate Viewer 0.44.1 turns it on for every file that isn't Markdown, until there are renderers for CSV and other types.
+- **No ligatures in code**: the editor and code in Preview turn off the font's ligatures, so `!=`, `->`, `>=` and `===` show as typed, not as `≠` or arrows (Cascadia Code draws them joined). `slate.css`.
+- A form without `submitTo` now says to name a folder such as `done/` in this space or `/owner/hr-review/leave/` in another, matching Metatrash Core 0.99.1, where a path without a leading `/` is a folder of the form's own space and `/owner/space/folder/` another space. `test/cards-page.js`'s form uses `done/`. No other change.
+
 ## 0.24.0 — 2026-11-18
 
 - Dashboard cards: a fenced block tagged `card` (`key: value` lines, and for a Markdown card its own text after `---`) is drawn as a card in Preview, Edit (a block like a diagram, ✎ for the source), Show Changes and print. `show` is count, list, table (headers sort), pie, bar, line, markdown or form; `size` normal, wide or full, side by side in a grid; `show-if` uses `@count`, `@time`, `@today`, `@weekday`, `@me` and `@done`. The data comes from the host (`cardHost` option, `setCardHost()`, `refreshCards()`), which answers with the viewer's own access; Slate Viewer 0.44.0 asks Metatrash Core 0.99.0. A card with a mistake shows the message above its source. New `src/cards.js`.

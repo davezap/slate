@@ -281,7 +281,7 @@ export function parseForm(markdown) {
   if (Object.hasOwn(keys, 'autoFlow') && keys.autoFlow !== 'true' && keys.autoFlow !== 'false') return fail('autoFlow is true or false.');
   if (!FORM_NAME.test(result.form)) return fail('form must be a short name of lowercase letters, digits and hyphens, such as leave-request.');
   if (runeLength(result.title) > MAX_TITLE || CONTROL.test(result.title)) return fail(`title is limited to ${MAX_TITLE} characters.`);
-  if (!result.submitTo) return fail('submitTo is missing: name the space and folder that receive the answers, such as owner/hr-review/leave/.');
+  if (!result.submitTo) return fail('submitTo is missing: name the folder that receives the answers, such as done/ in this space or /owner/hr-review/leave/ in another.');
   const names = new Set();
   const optionLines = new Set();
   let problem = '';

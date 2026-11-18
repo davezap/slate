@@ -537,6 +537,22 @@
   background: var(--panel-muted);
 }
 .slate-editor-host .markdown-body pre code{ padding: 0; border: 0; background: transparent; font-size: 13px; }
+/* Plain text (0.24.1): a file that isn't Markdown shows as it is, in the editor's font. */
+.slate-editor-host .markdown-body pre.slate-plain-text{
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
+  font-family: var(--font-editor);
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  tab-size: 2;
+}
 .slate-editor-host .markdown-body img{
   display: block;
   max-width: 100%;
@@ -1346,4 +1362,18 @@
 .slate-editor-host .cm-slate-card{ cursor: pointer; margin: 6px 0; }
 @media print{
   .slate-editor-host .slate-card{ box-shadow: none; break-inside: avoid; }
+}
+
+/* Plain text (0.24.1): no Markdown formatting buttons. */
+[data-plain-text="true"] .format-controls{ display: none; }
+
+/* Code shows the characters typed (0.24.1): Cascadia Code draws != as ≠, -> as an arrow and so on
+   unless its ligatures are off. */
+.slate-editor-host .cm-scroller,
+.slate-editor-host code,
+.slate-editor-host pre,
+.slate-editor-host kbd,
+.slate-editor-host samp{
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "calt" 0;
 }

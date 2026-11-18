@@ -25,7 +25,7 @@
     },
     async read(path) {
       if (path === 'lunch.md') return { text: '**Nearly time to eat.**\n' };
-      if (path === 'lock-up.md') return { text: '---\nform: lock-up\nsubmitTo: me/s/done/\n---\nLocked? {{yesno name=locked required}}\n' };
+      if (path === 'lock-up.md') return { text: '---\nform: lock-up\nsubmitTo: done/\n---\nLocked? {{yesno name=locked required}}\n' };
       throw new Error('not found');
     },
     async notices(paths) {

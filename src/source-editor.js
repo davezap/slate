@@ -131,10 +131,13 @@ export function createSourceEditor(parent, options = {}) {
   const highlighting = new Compartment();
   const live = new Compartment();
   const comparison = new Compartment();
+  const language = new Compartment();
+  const spelling = new Compartment();
   const sourceHighlight = syntaxHighlighting(markdownHighlight);
   let liveExtension = null;
   let readOnly = false;
   let livePreviewOn = false;
+  let plainTextOn = false;
   let comparing = false;
 
   const view = new EditorView({
@@ -145,7 +148,7 @@ export function createSourceEditor(parent, options = {}) {
         historyField.of(history()),
         drawSelection(),
         EditorView.lineWrapping,
-        markdownLanguage,
+        language.of(markdownLanguage),
         highlighting.of(sourceHighlight),
         live.of([]),
         comparison.of([]),
@@ -156,11 +159,11 @@ export function createSourceEditor(parent, options = {}) {
         keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
         editable.of([EditorState.readOnly.of(false), EditorView.editable.of(true)]),
         EditorView.contentAttributes.of({
-          spellcheck: 'true',
           autocorrect: 'off',
           autocapitalize: 'off',
           'aria-label': options.ariaLabel || 'Markdown source editor',
         }),
+        spelling.of(EditorView.contentAttributes.of({ spellcheck: 'true' })),
         EditorView.domEventHandlers(options.domEventHandlers || {}),
         EditorView.updateListener.of(update => {
           if (!update.docChanged) return;
@@ -240,6 +243,7 @@ export function createSourceEditor(parent, options = {}) {
       if (on === livePreviewOn) return;
       livePreviewOn = on;
       if (on && !liveExtension) liveExtension = livePreview(options.livePreview || {});
+      if (plainTextOn) return;
       view.dispatch({
         effects: [
           live.reconfigure(on ? liveExtension : []),
@@ -247,6 +251,26 @@ export function createSourceEditor(parent, options = {}) {
         ],
       });
       if (on) syncLivePreviewFocus(view);
+    },
+
+    get plainText() {
+      return plainTextOn;
+    },
+    // Plain text (a .txt, .csv or C file, Slate 0.24.1): no Markdown language, highlighting,
+    // live preview or spell check, whichever mode is asked for.
+    set plainText(value) {
+      const on = Boolean(value);
+      if (on === plainTextOn) return;
+      plainTextOn = on;
+      view.dispatch({
+        effects: [
+          language.reconfigure(on ? [] : markdownLanguage),
+          highlighting.reconfigure(on ? [] : livePreviewOn ? livePreviewHighlight : sourceHighlight),
+          live.reconfigure(on || !livePreviewOn ? [] : liveExtension),
+          spelling.reconfigure(EditorView.contentAttributes.of({ spellcheck: on ? 'false' : 'true' })),
+        ],
+      });
+      if (!on && livePreviewOn) syncLivePreviewFocus(view);
     },
 
     get comparing() {
