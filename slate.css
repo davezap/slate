@@ -1366,6 +1366,10 @@
 
 /* Plain text (0.24.1): no Markdown formatting buttons. */
 [data-plain-text="true"] .format-controls{ display: none; }
+/* With the formatting buttons hidden, Edit | Preview | Source stay on the right, as in Preview. */
+.slate-editor-host .editor-app[data-plain-text="true"] .format-toolbar,
+.slate-editor-host .editor-app[data-showing-changes="true"] .format-toolbar,
+.slate-editor-host .editor-app[data-filling="true"] .format-toolbar{ justify-content: flex-end; }
 
 /* Code shows the characters typed (0.24.1): Cascadia Code draws != as ≠, -> as an arrow and so on
    unless its ligatures are off. */

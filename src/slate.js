@@ -10,7 +10,7 @@ import { askedFields, checkAnswers, defaultAnswer, flowHidden, hiddenLines, isFo
   // Where slate.js was loaded from, to find mermaid/ next to it.
   const SCRIPT_URL = document.currentScript?.src || '';
 
-  const APP_VERSION = '0.24.0';
+  const APP_VERSION = '0.24.2';
   const DB_NAME = 'slate-markdown-editor-db';
   const DB_VERSION = 1;
   const NODE_STORE = 'documents';

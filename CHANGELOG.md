@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.24.2 — 2026-11-18
+
+- With the formatting buttons hidden (plain text, Show Changes, filling a form), Edit | Preview | Source stay at the right of the toolbar, as in Preview, instead of moving to the left. `slate.css`.
+- `data-slate-version` and the one-editor error now say the real version (they said 0.24.0 in 0.24.1). `src/slate.js`.
+
 ## 0.24.1 — 2026-11-18
 
 - **Plain text**: `setPlainText(true)` (and `isPlainText()`) is for a file that isn't Markdown, such as a .txt, a .csv or C source. Preview shows its text as it is, in the editor's font (`pre.slate-plain-text`), with no Markdown, cards or diagrams; Edit and Source edit it with no Markdown language, highlighting, live preview or spell check, and the formatting buttons are hidden. `src/slate.js`, `src/source-editor.js`, `slate.css`, `slate-editor.d.ts`. Slate Viewer 0.44.1 turns it on for every file that isn't Markdown, until there are renderers for CSV and other types.
