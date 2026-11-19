@@ -1320,6 +1320,75 @@
 }
 .slate-editor-host .slate-diagram:hover .media-source-toggle{ opacity: 1; }
 .slate-editor-host .cm-slate-diagram{ cursor: pointer; }
+/* Diagram zoom and pan (0.26.0): Ctrl+wheel and Ctrl+drag in the page, and a full-size view. */
+.slate-editor-host .slate-diagram-tools{
+  position: absolute; z-index: 4; top: 9px; right: 9px; display: none; gap: 6px;
+  opacity: 0; transition: opacity 120ms ease;
+}
+/* In Edit the ✎ button sits at the top right, so these go beside it. */
+.slate-editor-host .cm-slate-diagram .slate-diagram-tools{ right: 46px; }
+.slate-editor-host .slate-diagram.is-drawn .slate-diagram-tools{ display: flex; }
+.slate-editor-host .slate-diagram:hover .slate-diagram-tools,
+.slate-editor-host .slate-diagram-tools:focus-within{ opacity: 1; }
+@media (hover: none){ .slate-editor-host .slate-diagram-tools{ opacity: 0.6; } }
+.slate-editor-host .slate-diagram-tool.slate-diagram-reset{ display: none; }
+.slate-editor-host .slate-diagram.is-zoomed .slate-diagram-tool.slate-diagram-reset{ display: inline-flex; }
+.slate-editor-host .slate-diagram-tool{
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; padding: 0;
+  border: 1px solid color-mix(in srgb, var(--border-strong) 75%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  color: var(--text-muted);
+  box-shadow: var(--shadow);
+  font-size: 17px; line-height: 1;
+  cursor: pointer;
+  transition: color 120ms ease, background 120ms ease;
+}
+.slate-editor-host .slate-diagram-tool:hover{ color: var(--accent-strong); background: var(--panel); }
+.slate-editor-host .slate-diagram-tool:focus-visible{ outline: 2px solid var(--accent); outline-offset: 1px; }
+.slate-editor-host .slate-diagram.is-zoomed .slate-diagram-canvas > svg{ cursor: grab; }
+.slate-editor-host .slate-diagram.is-panning .slate-diagram-canvas > svg{ cursor: grabbing; user-select: none; }
+
+/* The full-size view: a sheet over the faded page. It is its own .slate-editor-host on <body>. */
+.slate-editor-host.slate-diagram-overlay{
+  position: fixed; inset: 0; z-index: 2147483000;
+  width: auto; height: auto; overflow: hidden;
+  display: flex; padding: 24px;
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+  -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
+  animation: slate-diagram-fade 140ms ease-out;
+}
+@keyframes slate-diagram-fade{ from{ opacity: 0; } to{ opacity: 1; } }
+@media (prefers-reduced-motion: reduce){ .slate-editor-host.slate-diagram-overlay{ animation: none; } }
+@media (max-width: 600px){ .slate-editor-host.slate-diagram-overlay{ padding: 8px; } }
+.slate-diagram-overlay .slate-diagram-sheet{
+  flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column;
+  border: 1px solid var(--border); border-radius: 10px;
+  background: var(--panel); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+}
+.slate-diagram-overlay .slate-diagram-bar{
+  display: flex; align-items: center; gap: 6px; padding: 8px 8px 8px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.slate-diagram-overlay .slate-diagram-hint{
+  flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  color: var(--text-muted); font: 13px/1.4 var(--font-ui);
+}
+.slate-diagram-overlay .slate-diagram-tool{ box-shadow: none; }
+.slate-diagram-overlay .slate-diagram-stage{
+  position: relative; flex: 1; min-height: 0; padding: 12px;
+  touch-action: none; cursor: grab; user-select: none;
+}
+.slate-diagram-overlay.is-panning .slate-diagram-stage{ cursor: grabbing; }
+.slate-diagram-overlay .slate-diagram-stage > svg{
+  display: block; width: 100% !important; height: 100% !important;
+  max-width: none !important; max-height: none !important;
+}
+@media print{
+  .slate-editor-host .slate-diagram-tools, .slate-editor-host.slate-diagram-overlay{ display: none !important; }
+}
 /* Named embeds (0.23.0): the edition's content draws itself; the frame only spaces it. */
 .slate-editor-host .slate-embed{ position: relative; margin: 1em 0; }
 .slate-editor-host .slate-embed:hover .media-source-toggle{ opacity: 1; }
@@ -1431,4 +1500,84 @@
 .slate-editor-host samp{
   font-variant-ligatures: none;
   font-feature-settings: "liga" 0, "calt" 0;
+}
+
+/* Code colours (0.26.0): code files in the editor and fenced code blocks in Preview, coloured by
+   CodeMirror's language packs (src/code-languages.js). One set of colours per theme. */
+.slate-editor-host{
+  --code-keyword: #a626a4;
+  --code-string: #50a14f;
+  --code-string2: #0e7f7a;
+  --code-comment: #8e8f96;
+  --code-number: #986801;
+  --code-function: #4078f2;
+  --code-type: #b76b01;
+  --code-tag: #e45649;
+  --code-attribute: #986801;
+  --code-property: #0b7bb0;
+  --code-variable2: #e45649;
+  --code-operator: #0b7bb0;
+  --code-meta: #7a6f87;
+  --code-invalid: #d1242f;
+}
+.slate-editor-host[data-theme="dark"]{
+  --code-keyword: #c678dd;
+  --code-string: #98c379;
+  --code-string2: #56b6c2;
+  --code-comment: #8b8496;
+  --code-number: #d19a66;
+  --code-function: #61afef;
+  --code-type: #e5c07b;
+  --code-tag: #e06c75;
+  --code-attribute: #d19a66;
+  --code-property: #56b6c2;
+  --code-variable2: #e06c75;
+  --code-operator: #56b6c2;
+  --code-meta: #aaa1b3;
+  --code-invalid: #ff6b6b;
+}
+.slate-editor-host[data-theme="paper"]{
+  --code-keyword: #7a1f6e;
+  --code-string: #2f6b1f;
+  --code-string2: #135e5a;
+  --code-comment: #6b6254;
+  --code-number: #8a4b00;
+  --code-function: #1f4f99;
+  --code-type: #7d5200;
+  --code-tag: #9c2a1f;
+  --code-attribute: #8a4b00;
+  --code-property: #0f5a6e;
+  --code-variable2: #9c2a1f;
+  --code-operator: #0f5a6e;
+  --code-meta: #4f473b;
+  --code-invalid: #a8303c;
+}
+.slate-editor-host .tok-keyword{ color: var(--code-keyword); }
+.slate-editor-host .tok-string{ color: var(--code-string); }
+.slate-editor-host .tok-string2{ color: var(--code-string2); }
+.slate-editor-host .tok-comment{ color: var(--code-comment); font-style: italic; }
+.slate-editor-host :is(.tok-number, .tok-atom){ color: var(--code-number); }
+.slate-editor-host .tok-function{ color: var(--code-function); }
+.slate-editor-host :is(.tok-type, .tok-macro){ color: var(--code-type); }
+.slate-editor-host .tok-tag{ color: var(--code-tag); }
+.slate-editor-host .tok-attribute{ color: var(--code-attribute); }
+.slate-editor-host :is(.tok-property, .tok-definition){ color: var(--code-property); }
+.slate-editor-host :is(.tok-variable2, .tok-label){ color: var(--code-variable2); }
+.slate-editor-host .tok-operator{ color: var(--code-operator); }
+.slate-editor-host .tok-meta{ color: var(--code-meta); }
+.slate-editor-host .tok-invalid{ color: var(--code-invalid); }
+.slate-editor-host .tok-heading{ color: var(--accent-strong); font-weight: 700; }
+.slate-editor-host .tok-strong{ font-weight: 700; }
+.slate-editor-host .tok-emphasis{ font-style: italic; }
+.slate-editor-host .tok-link{ color: var(--accent); text-decoration: underline; }
+.slate-editor-host .tok-inserted{ color: var(--code-string); }
+.slate-editor-host .tok-deleted{ color: var(--code-tag); }
+
+/* A code file's Preview (0.26.0) is the editor, read only: no caret. */
+.slate-editor-host .editor-grid.code-view .cm-content{ caret-color: transparent; }
+
+/* Printing a code file (0.26.0): the whole text, coloured, instead of the editor. */
+@media print{
+  .slate-editor-host .editor-app[data-printing-code="true"] .editor-grid > .editor-pane{ display: none !important; }
+  .slate-editor-host .editor-app[data-printing-code="true"] .editor-grid > .preview-pane{ display: block !important; }
 }

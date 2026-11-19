@@ -40,12 +40,14 @@ const scan = mode => page.evaluate(mode => {
   return found;
 }, mode);
 
+// Preview has no button since 0.26.0 (the host's read-only switch or Ctrl+E): the API sets it.
+const setMode = mode => page.evaluate(async mode => (await window.SlateMarkdownEditor.ready).setWorkspaceMode(mode), mode);
 for (const mode of ['edit', 'preview', 'source']) {
-  await page.evaluate(mode => document.querySelector(`[data-workspace-mode="${mode}"]`)?.click(), mode);
+  await setMode(mode);
   await page.waitForTimeout(800);
   problems.push(...await scan(mode));
 }
-await page.evaluate(() => document.querySelector('[data-workspace-mode="preview"]')?.click());
+await setMode('preview');
 for (const link of await page.$$('#host a[href]')) await link.click({ timeout: 500, modifiers: [] }).catch(() => {});
 await page.waitForTimeout(500);
 problems.push(...await scan('after clicking every link'));

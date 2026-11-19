@@ -8,11 +8,12 @@ import * as edition from './edition.js';
 import { Annotation, Compartment, EditorSelection, EditorState, Prec, RangeSetBuilder, StateEffect, StateField } from '@codemirror/state';
 import { Decoration, EditorView, drawSelection, keymap, placeholder } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
-import { HighlightStyle, Language, defineLanguageFacet, languageDataProp, syntaxHighlighting } from '@codemirror/language';
+import { HighlightStyle, Language, defineLanguageFacet, ensureSyntaxTree, languageDataProp, syntaxHighlighting } from '@codemirror/language';
 import { Table, TaskList, Autolink, parser as markdownParser } from '@lezer/markdown';
 import { tags } from '@lezer/highlight';
 import { getChunks, getOriginalDoc, goToNextChunk, goToPreviousChunk, unifiedMergeView } from '@codemirror/merge';
 import { livePreview, livePreviewHighlight, syncLivePreviewFocus } from './live-preview.js';
+import { codeHighlighting, highlightedHtml } from './code-languages.js';
 
 const programmatic = Annotation.define();
 
@@ -138,6 +139,8 @@ export function createSourceEditor(parent, options = {}) {
   let readOnly = false;
   let livePreviewOn = false;
   let plainTextOn = false;
+  // A code file's language (0.26.0): a CodeMirror LanguageSupport, or null for plain text.
+  let codeSupport = null;
   let comparing = false;
 
   const view = new EditorView({
@@ -262,15 +265,38 @@ export function createSourceEditor(parent, options = {}) {
       const on = Boolean(value);
       if (on === plainTextOn) return;
       plainTextOn = on;
+      if (!on) codeSupport = null;
       view.dispatch({
         effects: [
-          language.reconfigure(on ? [] : markdownLanguage),
-          highlighting.reconfigure(on ? [] : livePreviewOn ? livePreviewHighlight : sourceHighlight),
+          language.reconfigure(on ? codeSupport || [] : markdownLanguage),
+          highlighting.reconfigure(on ? (codeSupport ? codeHighlighting : []) : livePreviewOn ? livePreviewHighlight : sourceHighlight),
           live.reconfigure(on || !livePreviewOn ? [] : liveExtension),
           spelling.reconfigure(EditorView.contentAttributes.of({ spellcheck: on ? 'false' : 'true' })),
         ],
       });
       if (!on && livePreviewOn) syncLivePreviewFocus(view);
+    },
+
+    /**
+     * A code file's language (0.26.0): a CodeMirror LanguageSupport from languages/, or null
+     * for plain text. Colours and indents the text while plainText is on.
+     */
+    setCodeLanguage(support) {
+      codeSupport = support || null;
+      if (!plainTextOn) return;
+      view.dispatch({
+        effects: [
+          language.reconfigure(codeSupport || []),
+          highlighting.reconfigure(codeSupport ? codeHighlighting : []),
+        ],
+      });
+    },
+
+    /** The whole text as coloured HTML, for printing a code file (0.26.0). */
+    codeHtml() {
+      const text = view.state.doc.toString();
+      const tree = codeSupport ? ensureSyntaxTree(view.state, view.state.doc.length, 300) : null;
+      return tree ? highlightedHtml(text, tree) : text.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
     },
 
     get comparing() {

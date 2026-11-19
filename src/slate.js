@@ -1,5 +1,6 @@
 import * as edition from './edition.js';
 import { createSourceEditor } from './source-editor.js';
+import { colourCodeBlocks, languageForFile } from './code-languages.js';
 import { markWordChanges, planChanges } from './changes.js';
 import { QUERY_SHOWS, cardColumns, cardContext, conditionsHold, formatNumber, parseCard, sortRows } from './cards.js';
 import { closesFence, fenceEnd, openFence, replaceCodeSpans, unindentFenced } from './fences.js';
@@ -11,7 +12,7 @@ import { askedFields, checkAnswers, defaultAnswer, flowHidden, hiddenLines, isFo
   // Where slate.js was loaded from, to find mermaid/ next to it.
   const SCRIPT_URL = document.currentScript?.src || '';
 
-  const APP_VERSION = '0.25.0';
+  const APP_VERSION = '0.26.0';
   /** The Copy button on code blocks (0.25.0, see copyCodeBlock). */
   const COPY_BUTTON = '<button type="button" class="slate-code-copy" title="Copy" aria-label="Copy to the clipboard" contenteditable="false">'
     + '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15V5a2 2 0 0 1 2-2h8"></path></svg>'
@@ -47,7 +48,6 @@ import { askedFields, checkAnswers, defaultAnswer, flowHidden, hiddenLines, isFo
           title="Show what changed since another version">± Changes</button>
         <div id="viewSwitcher" class="view-switcher" role="group" aria-label="Editor mode">
           <button class="view-button active" data-workspace-mode="edit" type="button" title="Edit with Obsidian-style Live Preview">Edit</button>
-          <button class="view-button" data-workspace-mode="preview" type="button" title="Preview the rendered document without editing">Preview</button>
           <button class="view-button" data-workspace-mode="source" type="button" title="Edit the complete raw Markdown source">Source</button>
         </div>
       </div>
@@ -190,8 +190,13 @@ import { askedFields, checkAnswers, defaultAnswer, flowHidden, hiddenLines, isFo
     interactiveTasks: false,
     // Plain text (Slate 0.24.1): Preview shows the text as it is, the editor has no Markdown.
     plainText: false,
+    // A code file's name and language (0.26.0): it picks the colouring.
+    codeFileName: '',
+    codeLanguage: null,
+    codeGeneration: 0,
     resolveUrl: null,
     diagramsUrl: '',
+    languagesUrl: '',
     outlinePanel: true,
     compare: null,
     changes: null,
@@ -270,6 +275,7 @@ import { askedFields, checkAnswers, defaultAnswer, flowHidden, hiddenLines, isFo
     state.outlinePanel = options.outlinePanel !== false;
     state.diagramsUrl = typeof options.diagramsUrl === 'string' ? options.diagramsUrl : '';
     state.chartsUrl = typeof options.chartsUrl === 'string' ? options.chartsUrl : '';
+    state.languagesUrl = typeof options.languagesUrl === 'string' ? options.languagesUrl : '';
     if (options.cardHost) setCardHost(options.cardHost);
 
     const requestedMode = normaliseWorkspaceMode(
@@ -476,6 +482,7 @@ import { askedFields, checkAnswers, defaultAnswer, flowHidden, hiddenLines, isFo
     el.outlineNavigation.addEventListener('click', handleOutlineNavigationClick);
 
     mountRoot.addEventListener('keydown', handleGlobalKeydown);
+    bindDiagramZoom(mountRoot);
     window.addEventListener('beforeunload', flushPendingSave);
     mountRoot.addEventListener('dragenter', handleDragEnter);
     mountRoot.addEventListener('dragover', handleDragOver);
@@ -680,10 +687,8 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     destroyMediaPlayers(el.previewPane);
     const generation = ++state.liveRenderGeneration;
     if (state.plainText) {
-      const pre = document.createElement('pre');
-      pre.className = 'slate-plain-text';
-      pre.textContent = note.content || '';
-      el.previewPane.replaceChildren(pre);
+      // A code file previews in the editor, read only (0.26.0; see applyEditorMode).
+      el.previewPane.replaceChildren();
       updateDocumentOutline();
       return;
     }
@@ -696,6 +701,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
 
     el.previewPane.replaceChildren(fragment);
     hydrateDiagrams(el.previewPane);
+    hydrateCode(el.previewPane);
     hydrateEmbeds(el.previewPane);
     hydrateCards(el.previewPane);
     ensureTrailingLiveBlankBlock();
@@ -2023,6 +2029,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     content.innerHTML = renderMarkdown(String(text).replace(/^```\s*card\b/gim, '```text'));
     body.replaceChildren(content);
     hydrateDiagrams(content);
+    hydrateCode(content);
     hydrateEmbeds(content);
     hydrateWikiLinks(content);
     void hydrateAttachments(content);
@@ -2393,6 +2400,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
 
   function diagramHtml(language, code) {
     return `<div class="slate-diagram" data-diagram="${language}" data-diagram-source="${escapeAttribute(code)}">`
+      + DIAGRAM_TOOLS_HTML
       + `<div class="slate-diagram-canvas"><pre class="slate-diagram-pending"><code>${escapeHtml(code)}</code></pre></div></div>`;
   }
 
@@ -2403,6 +2411,38 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     } catch {
       return 'mermaid/mermaid.js';
     }
+  }
+
+  function languagesUrl() {
+    if (state.languagesUrl) return state.languagesUrl;
+    try {
+      return new URL('languages/languages.js', SCRIPT_URL || location.href).href;
+    } catch {
+      return 'languages/languages.js';
+    }
+  }
+
+  /** Colours the fenced code blocks under `root` by their language (0.26.0). */
+  function hydrateCode(root) {
+    if (!root?.querySelector('.slate-code code[data-language]:not([data-coloured])')) return;
+    colourCodeBlocks(root, languagesUrl()).catch(error => console.warn(error.message || error));
+  }
+
+  /** Colours the code file in the editor by its name's language, once its pack loads (0.26.0). */
+  async function applyCodeLanguage() {
+    const generation = ++state.codeGeneration;
+    state.codeLanguage = null;
+    el.markdownEditor.setCodeLanguage(null);
+    if (!state.plainText || !state.codeFileName) return;
+    let language = null;
+    try {
+      language = await languageForFile(languagesUrl(), state.codeFileName);
+    } catch (error) {
+      console.warn(error.message || error);
+    }
+    if (generation !== state.codeGeneration || !language) return;
+    state.codeLanguage = language.name;
+    el.markdownEditor.setCodeLanguage(language.support);
   }
 
   function loadMermaid() {
@@ -2447,6 +2487,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
         diagramCopies += 1;
         canvas.innerHTML = drawn.svg.split(drawn.id).join(`${drawn.id}-${diagramCopies}`);
         element.classList.remove('has-error');
+        element.classList.add('is-drawn');
         element.dataset.renderedTheme = theme;
       } catch (error) {
         showDiagramError(element, error?.message || String(error));
@@ -2458,6 +2499,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     const canvas = element.querySelector('.slate-diagram-canvas');
     if (!canvas) return;
     element.classList.add('has-error');
+    element.classList.remove('is-drawn', 'is-zoomed');
     element.dataset.renderedTheme = diagramTheme();
     const message = document.createElement('div');
     message.className = 'slate-diagram-error';
@@ -2466,6 +2508,321 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     code.className = 'slate-diagram-pending';
     code.textContent = element.dataset.diagramSource ?? '';
     canvas.replaceChildren(message, code);
+  }
+
+  // ---- Diagram zoom and pan (0.26.0) -------------------------------------------------------
+  // A dense diagram drawn to the page's width can be too small to read. In the page, Ctrl+wheel
+  // zooms a diagram where the pointer is and Ctrl+drag pans it, so the plain wheel still scrolls
+  // the page. The expand button at its top right opens a copy over the whole window, with the
+  // page faded behind it, where the plain wheel and drag zoom and pan; Esc, ✕ or a click on the
+  // faded page closes it. Zooming changes the SVG's viewBox, so the drawing stays sharp.
+
+  const EXPAND_ICON = '<svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 2.5h3.5V6M6 13.5H2.5V10M13.5 2.5 9.5 6.5M2.5 13.5l4-4"/></svg>';
+  const RESET_ICON = '<svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.8 8a5.2 5.2 0 1 0 1.6-3.8M2.5 2.5v3h3"/></svg>';
+  const DIAGRAM_TOOLS_HTML = '<div class="slate-diagram-tools">'
+    + `<button type="button" class="slate-diagram-tool slate-diagram-reset" title="Back to the whole diagram" aria-label="Back to the whole diagram">${RESET_ICON}</button>`
+    + `<button type="button" class="slate-diagram-tool slate-diagram-expand" title="Open full size (Ctrl+wheel zooms and Ctrl+drag pans here)" aria-label="Open the diagram full size">${EXPAND_ICON}</button>`
+    + '</div>';
+  const DIAGRAM_MAX_ZOOM = 20;
+  let diagramOverlay = null;
+
+  /** The diagram's SVG, if it is drawn. */
+  function diagramSvg(container) {
+    return container?.querySelector(':scope .slate-diagram-canvas > svg, :scope .slate-diagram-stage > svg') ?? null;
+  }
+
+  /** The viewBox Mermaid drew the diagram with: the whole diagram, at zoom 1. */
+  function diagramBaseView(svg) {
+    if (!svg.slateBaseView) {
+      const box = svg.viewBox?.baseVal;
+      if (!box || !box.width || !box.height) return null;
+      svg.slateBaseView = { x: box.x, y: box.y, width: box.width, height: box.height };
+    }
+    return svg.slateBaseView;
+  }
+
+  function diagramCurrentView(svg) {
+    const box = svg.viewBox.baseVal;
+    return { x: box.x, y: box.y, width: box.width, height: box.height };
+  }
+
+  function setDiagramView(svg, view) {
+    const base = diagramBaseView(svg);
+    if (!base) return;
+    // Keep at least a tenth of the diagram in sight, so it can't be dragged away and lost.
+    const marginX = view.width * 0.1;
+    const marginY = view.height * 0.1;
+    const x = Math.min(Math.max(view.x, base.x - view.width + marginX), base.x + base.width - marginX);
+    const y = Math.min(Math.max(view.y, base.y - view.height + marginY), base.y + base.height - marginY);
+    svg.setAttribute('viewBox', `${x} ${y} ${view.width} ${view.height}`);
+    const zoomed = Math.abs(view.width - base.width) > base.width * 1e-6 || Math.abs(x - base.x) > 1e-6 || Math.abs(y - base.y) > 1e-6;
+    svg.closest('.slate-diagram, .slate-diagram-overlay')?.classList.toggle('is-zoomed', zoomed);
+  }
+
+  function resetDiagramView(svg) {
+    const base = svg && diagramBaseView(svg);
+    if (base) setDiagramView(svg, base);
+  }
+
+  /** Where a point on screen falls in the diagram's own coordinates. */
+  function diagramPoint(svg, clientX, clientY) {
+    const matrix = svg.getScreenCTM();
+    if (!matrix) return null;
+    return new DOMPoint(clientX, clientY).matrixTransform(matrix.inverse());
+  }
+
+  /** Zooms by `factor` (above 1 is closer) keeping the point under (clientX, clientY) still. */
+  function zoomDiagram(svg, factor, clientX, clientY, minZoom) {
+    const base = diagramBaseView(svg);
+    if (!base || !Number.isFinite(factor) || factor <= 0) return;
+    const view = diagramCurrentView(svg);
+    const zoom = Math.min(DIAGRAM_MAX_ZOOM, Math.max(minZoom, (base.width / view.width) * factor));
+    const width = base.width / zoom;
+    const height = base.height / zoom;
+    const rect = svg.getBoundingClientRect();
+    const point = (clientX === undefined ? null : diagramPoint(svg, clientX, clientY))
+      ?? diagramPoint(svg, rect.left + rect.width / 2, rect.top + rect.height / 2)
+      ?? { x: view.x + view.width / 2, y: view.y + view.height / 2 };
+    const scale = width / view.width;
+    setDiagramView(svg, {
+      x: point.x - (point.x - view.x) * scale,
+      y: point.y - (point.y - view.y) * scale,
+      width,
+      height,
+    });
+  }
+
+  /** Moves the diagram with the pointer by (dx, dy) screen pixels. */
+  function panDiagram(svg, dx, dy) {
+    const matrix = svg.getScreenCTM();
+    if (!matrix || !matrix.a) return;
+    const view = diagramCurrentView(svg);
+    setDiagramView(svg, { ...view, x: view.x - dx / matrix.a, y: view.y - dy / matrix.d });
+  }
+
+  /** A wheel turn as a zoom factor: one mouse notch is about 20%, touchpads in small steps. */
+  function wheelZoomFactor(event) {
+    const pixels = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 400 : 1);
+    return Math.exp(-Math.max(-300, Math.min(300, pixels)) * 0.0018);
+  }
+
+  /** Follows a drag from a pointerdown, calling onMove with each step's movement. */
+  function followDrag(event, target, onMove, onEnd) {
+    let lastX = event.clientX;
+    let lastY = event.clientY;
+    let moved = 0;
+    try { target.setPointerCapture(event.pointerId); } catch {}
+    const move = moveEvent => {
+      if (moveEvent.pointerId !== event.pointerId) return;
+      const dx = moveEvent.clientX - lastX;
+      const dy = moveEvent.clientY - lastY;
+      lastX = moveEvent.clientX;
+      lastY = moveEvent.clientY;
+      moved += Math.abs(dx) + Math.abs(dy);
+      onMove(dx, dy);
+    };
+    const end = endEvent => {
+      if (endEvent.pointerId !== event.pointerId) return;
+      target.removeEventListener('pointermove', move);
+      target.removeEventListener('pointerup', end);
+      target.removeEventListener('pointercancel', end);
+      onEnd?.(moved);
+    };
+    target.addEventListener('pointermove', move);
+    target.addEventListener('pointerup', end);
+    target.addEventListener('pointercancel', end);
+  }
+
+  // In the page (Preview, Edit and Show Changes). These listen while the event goes down to the
+  // diagram, so the editor (which would show the source or add a cursor) and a host's own
+  // Ctrl+wheel (the Viewer's page zoom) don't see what is used here.
+  function bindDiagramZoom(root) {
+    let suppressClick = false;
+    const canvasSvg = target => {
+      const canvas = target?.closest?.('.slate-diagram-canvas');
+      return canvas ? diagramSvg(canvas.parentElement) : null;
+    };
+    root.addEventListener('wheel', event => {
+      if (!(event.ctrlKey || event.metaKey) || !event.deltaY) return;
+      const svg = canvasSvg(event.target);
+      if (!svg) return;
+      event.preventDefault();
+      event.stopPropagation();
+      zoomDiagram(svg, wheelZoomFactor(event), event.clientX, event.clientY, 1);
+    }, { capture: true, passive: false });
+    root.addEventListener('pointerdown', event => {
+      const tool = event.target.closest?.('.slate-diagram-tool');
+      if (tool) {
+        event.stopPropagation();
+        return;
+      }
+      if (!(event.ctrlKey || event.metaKey) || event.button !== 0) return;
+      const svg = canvasSvg(event.target);
+      if (!svg) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const diagram = svg.closest('.slate-diagram');
+      diagram.classList.add('is-panning');
+      followDrag(event, svg, (dx, dy) => panDiagram(svg, dx, dy), moved => {
+        diagram.classList.remove('is-panning');
+        suppressClick = moved > 3;
+      });
+    }, true);
+    root.addEventListener('mousedown', event => {
+      if (event.target.closest?.('.slate-diagram-tool')
+        || ((event.ctrlKey || event.metaKey) && canvasSvg(event.target))) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    }, true);
+    root.addEventListener('click', event => {
+      const tool = event.target.closest?.('.slate-diagram-tool');
+      if (tool) {
+        event.preventDefault();
+        event.stopPropagation();
+        const diagram = tool.closest('.slate-diagram');
+        if (tool.classList.contains('slate-diagram-expand')) openDiagramOverlay(diagram, tool);
+        else resetDiagramView(diagramSvg(diagram));
+        return;
+      }
+      if (suppressClick || ((event.ctrlKey || event.metaKey) && canvasSvg(event.target))) {
+        suppressClick = false;
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    }, true);
+  }
+
+  /** A copy of a drawn diagram's SVG under a new id (its arrowheads and styles name the id). */
+  function copyDiagramSvg(svg) {
+    const id = svg.id;
+    const holder = document.createElement('div');
+    if (!id) {
+      holder.innerHTML = svg.outerHTML;
+    } else {
+      diagramCopies += 1;
+      holder.innerHTML = svg.outerHTML.split(id).join(`${id.replace(/-\d+$/, '')}-${diagramCopies}`);
+    }
+    const copy = holder.firstElementChild;
+    const base = diagramBaseView(svg);
+    if (copy && base) copy.setAttribute('viewBox', `${base.x} ${base.y} ${base.width} ${base.height}`);
+    copy?.removeAttribute('width');
+    copy?.removeAttribute('height');
+    return copy;
+  }
+
+  function openDiagramOverlay(diagram, opener) {
+    const svg = diagramSvg(diagram);
+    if (!svg) return;
+    closeDiagramOverlay();
+    const doc = ownerDocument || document;
+    const overlay = doc.createElement('div');
+    overlay.className = 'slate-editor-host slate-diagram-overlay';
+    overlay.dataset.theme = mountHost?.dataset.theme || 'light';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-label', 'Diagram, full size');
+    overlay.innerHTML = '<div class="slate-diagram-sheet">'
+      + '<div class="slate-diagram-bar">'
+      + '<span class="slate-diagram-hint">Wheel to zoom, drag to move, double-click for the whole diagram</span>'
+      + '<button type="button" class="slate-diagram-tool" data-zoom="out" title="Zoom out (-)" aria-label="Zoom out">−</button>'
+      + '<button type="button" class="slate-diagram-tool" data-zoom="in" title="Zoom in (+)" aria-label="Zoom in">+</button>'
+      + `<button type="button" class="slate-diagram-tool" data-zoom="reset" title="Whole diagram (0)" aria-label="Whole diagram">${RESET_ICON}</button>`
+      + '<button type="button" class="slate-diagram-tool slate-diagram-close" title="Close (Esc)" aria-label="Close">✕</button>'
+      + '</div><div class="slate-diagram-stage"></div></div>';
+    const stage = overlay.querySelector('.slate-diagram-stage');
+    const copy = copyDiagramSvg(svg);
+    if (!copy) return;
+    stage.append(copy);
+    const minZoom = 0.5;
+
+    // Pointers down on the stage: one drags, two pinch.
+    const pointers = new Map();
+    let pinch = null;
+    stage.addEventListener('wheel', event => {
+      if (!event.deltaY) return;
+      event.preventDefault();
+      event.stopPropagation();
+      zoomDiagram(copy, wheelZoomFactor(event), event.clientX, event.clientY, minZoom);
+    }, { passive: false });
+    stage.addEventListener('pointerdown', event => {
+      if (event.pointerType === 'mouse' && event.button !== 0) return;
+      event.preventDefault();
+      pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      try { stage.setPointerCapture(event.pointerId); } catch {}
+      overlay.classList.add('is-panning');
+    });
+    stage.addEventListener('pointermove', event => {
+      const last = pointers.get(event.pointerId);
+      if (!last) return;
+      const now = { x: event.clientX, y: event.clientY };
+      pointers.set(event.pointerId, now);
+      if (pointers.size >= 2) {
+        const [a, b] = [...pointers.values()];
+        const distance = Math.hypot(a.x - b.x, a.y - b.y);
+        const middle = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+        if (pinch && pinch.distance > 0) {
+          zoomDiagram(copy, distance / pinch.distance, middle.x, middle.y, minZoom);
+          panDiagram(copy, middle.x - pinch.middle.x, middle.y - pinch.middle.y);
+        }
+        pinch = { distance, middle };
+      } else {
+        panDiagram(copy, now.x - last.x, now.y - last.y);
+      }
+    });
+    const lift = event => {
+      pointers.delete(event.pointerId);
+      pinch = null;
+      if (!pointers.size) overlay.classList.remove('is-panning');
+    };
+    stage.addEventListener('pointerup', lift);
+    stage.addEventListener('pointercancel', lift);
+    stage.addEventListener('dblclick', event => {
+      event.preventDefault();
+      resetDiagramView(copy);
+    });
+    overlay.addEventListener('click', event => {
+      const button = event.target.closest('button');
+      if (button?.dataset.zoom === 'in') zoomDiagram(copy, 1.5, undefined, undefined, minZoom);
+      else if (button?.dataset.zoom === 'out') zoomDiagram(copy, 1 / 1.5, undefined, undefined, minZoom);
+      else if (button?.dataset.zoom === 'reset') resetDiagramView(copy);
+      else if (button?.classList.contains('slate-diagram-close') || event.target === overlay) closeDiagramOverlay();
+    });
+    const onKey = event => {
+      if (event.key === 'Escape') closeDiagramOverlay();
+      else if ((event.key === '+' || event.key === '=') && !event.ctrlKey && !event.metaKey) zoomDiagram(copy, 1.5, undefined, undefined, minZoom);
+      else if (event.key === '-' && !event.ctrlKey && !event.metaKey) zoomDiagram(copy, 1 / 1.5, undefined, undefined, minZoom);
+      else if (event.key === '0' && !event.ctrlKey && !event.metaKey) resetDiagramView(copy);
+      else if (event.key === 'Tab') {
+        // Keep focus on the overlay's buttons while it is open.
+        const buttons = [...overlay.querySelectorAll('button')];
+        const index = buttons.indexOf(doc.activeElement);
+        const next = event.shiftKey ? (index <= 0 ? buttons.length - 1 : index - 1) : (index + 1) % buttons.length;
+        buttons[next]?.focus();
+      } else return;
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    doc.addEventListener('keydown', onKey, true);
+
+    doc.body.append(overlay);
+    diagramOverlay = { overlay, opener, close: () => doc.removeEventListener('keydown', onKey, true) };
+    overlay.querySelector('.slate-diagram-close')?.focus();
+  }
+
+  function closeDiagramOverlay() {
+    if (!diagramOverlay) return;
+    const { overlay, opener, close } = diagramOverlay;
+    diagramOverlay = null;
+    close();
+    overlay.remove();
+    if (opener?.isConnected) opener.focus({ preventScroll: true });
+  }
+
+  /** Before printing: every diagram whole, and no overlay. */
+  function resetDiagramsForPrint() {
+    closeDiagramOverlay();
+    mountHost?.querySelectorAll('.slate-diagram.is-zoomed').forEach(diagram => resetDiagramView(diagramSvg(diagram)));
   }
 
   // ---- Printing ----------------------------------------------------------------------------
@@ -2480,6 +2837,16 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
   }
 
   function groupForPrint() {
+    resetDiagramsForPrint();
+    if (state.plainText) {
+      // A code file prints whole and coloured; the editor on screen only draws what shows.
+      const pre = document.createElement('pre');
+      pre.className = 'slate-plain-text slate-print-code';
+      pre.innerHTML = el.markdownEditor.codeHtml();
+      el.previewPane.replaceChildren(pre);
+      el.app.dataset.printingCode = 'true';
+      return;
+    }
     const pane = el.previewPane;
     if (!pane || pane.querySelector(':scope > .slate-print-section')) return;
     // Blank lines at the end would only push an empty last page out of the printer.
@@ -2520,6 +2887,11 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
   function ungroupAfterPrint() {
     const pane = el.previewPane;
     if (!pane) return;
+    if (el.app.dataset.printingCode) {
+      delete el.app.dataset.printingCode;
+      pane.querySelector(':scope > .slate-print-code')?.remove();
+      return;
+    }
     // Inner sections first, so each block goes back to where it was.
     [...pane.querySelectorAll('.slate-print-section')].reverse().forEach(section => section.replaceWith(...section.childNodes));
     pane.querySelectorAll('.slate-print-hidden').forEach(block => block.classList.remove('slate-print-hidden'));
@@ -2527,7 +2899,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
 
   // Hosts switch the theme by setting data-theme on the host; diagrams follow it.
   function watchDiagramTheme() {
-    new MutationObserver(() => hydrateDiagrams(mountHost)).observe(mountHost, { attributes: true, attributeFilter: ['data-theme'] });
+    new MutationObserver(() => { closeDiagramOverlay(); hydrateDiagrams(mountHost); }).observe(mountHost, { attributes: true, attributeFilter: ['data-theme'] });
   }
 
   function renderMarkdown(markdown, lineOffset = 0) {
@@ -2561,7 +2933,8 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
           html.push(embedHtml(embed));
           continue;
         }
-        const className = language ? ` class="language-${escapeAttribute(language)}"` : '';
+        const word = language.split(/\s+/)[0];
+        const className = language ? ` class="language-${escapeAttribute(language)}" data-language="${escapeAttribute(word)}"` : '';
         html.push(`<div class="slate-code"><pre><code${className}>${escapeHtml(code.join('\n'))}</code></pre>${COPY_BUTTON}</div>`);
         continue;
       }
@@ -3263,7 +3636,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
 
   /** The zero-based Markdown line at the top of the visible document (24px down). */
   function getTopLine() {
-    if (state.editorMode === 'edit') return el.markdownEditor.topLine();
+    if (state.editorMode === 'edit' || state.plainText) return el.markdownEditor.topLine();
     const top = el.previewPane.getBoundingClientRect().top + 24;
     let line = 0;
     for (const block of el.previewPane.querySelectorAll(':scope > .live-block[data-line-index]')) {
@@ -3450,7 +3823,13 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     el.formatToolbar.classList.toggle('preview-mode', mode === 'view');
     el.markdownEditor.readOnly = mode === 'view';
 
-    if (mode === 'view') {
+    if (mode === 'view' && state.plainText) {
+      // A code file's Preview is the editor, read only, so it keeps its colours and stays fast
+      // however long the file is (0.26.0).
+      el.editorGrid.className = 'editor-grid source-view code-view';
+      if (options.render !== false) await renderPreview();
+      if (topLine !== null) el.markdownEditor.scrollToLine(topLine);
+    } else if (mode === 'view') {
       el.editorGrid.className = 'editor-grid live-view view-only';
       if (options.render !== false) await renderPreview();
       if (topLine !== null) scrollPreviewToLine(topLine);
@@ -4065,6 +4444,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     });
     pane.replaceChildren(fragment);
     hydrateDiagrams(pane);
+    hydrateCode(pane);
     hydrateEmbeds(pane);
     hydrateCards(pane);
     await hydrateAttachments(pane);
@@ -4257,6 +4637,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     pane.replaceChildren(fragment);
     placeFormMarks(pane, fill, hints);
     hydrateDiagrams(pane);
+    hydrateCode(pane);
     hydrateEmbeds(pane);
     hydrateCards(pane);
     await hydrateAttachments(pane);
@@ -4759,19 +5140,28 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
         return applyReadOnly(readOnly);
       },
       /**
-       * Plain text (Slate 0.24.1): Preview shows the document's text as it is, in the editor's
-       * font, and Edit and Source edit it without Markdown. For a file that isn't Markdown.
+       * Plain text (Slate 0.24.1): for a file that isn't Markdown, Edit and Source edit it without
+       * Markdown and Preview shows it in the editor, read only (0.26.0). With `fileName` (0.26.0)
+       * it is coloured by the language its extension names, when CodeMirror knows it.
        */
-      async setPlainText(on) {
+      async setPlainText(on, options = {}) {
         const next = Boolean(on);
+        const fileName = next && typeof options?.fileName === 'string' ? options.fileName : '';
+        const changed = next !== state.plainText || fileName !== state.codeFileName;
         state.plainText = next;
+        state.codeFileName = fileName;
         el.app.dataset.plainText = String(next);
         el.markdownEditor.plainText = next;
-        if (state.editorMode === 'view') await renderPreview();
+        if (changed) void applyCodeLanguage();
+        if (state.editorMode === 'view') await applyEditorMode('view');
         return next;
       },
       isPlainText() {
         return state.plainText;
+      },
+      /** The language colouring the code file, such as "Python", or null (0.26.0). */
+      getCodeLanguage() {
+        return state.codeLanguage;
       },
       setInteractiveTasks(enabled) {
         state.interactiveTasks = Boolean(enabled);

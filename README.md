@@ -28,13 +28,13 @@ Edit and Source are one [CodeMirror 6](https://codemirror.net/) editor: Source s
 
 ```powershell
 npm install
-npm run build        # minified slate.js, mermaid/ and charts/, as committed and shipped
+npm run build        # minified slate.js, mermaid/, charts/ and languages/, as committed and shipped
 npm run build:dev    # readable slate.js with an inline source map, for debugging
 npm run watch        # rebuild on every change while developing
 ```
 
-Commit the rebuilt `slate.js` (and `mermaid/` when Mermaid changes) with the source change, so hosts can keep copying the files.
-`npm run build:slate`, `npm run build:mermaid` and `npm run build:charts` build one of them.
+Commit the rebuilt `slate.js` (and `mermaid/` or `languages/` when they change) with the source change, so hosts can keep copying the files.
+`npm run build:slate`, `npm run build:mermaid`, `npm run build:charts` and `npm run build:languages` build one of them.
 
 ## Run the standalone editor
 
@@ -110,6 +110,7 @@ const editor = await window.SlateMarkdownEditor.mount(host, {
   outlinePanel: true,
   diagramsUrl: '',              // where mermaid/mermaid.js is; default: next to slate.js
   chartsUrl: '',                // where charts/charts.js is; default: next to slate.js
+  languagesUrl: '',             // where languages/languages.js is; default: next to slate.js
   cardHost: null,               // answers dashboard cards (see Dashboard cards)
 });
 ```
@@ -128,7 +129,16 @@ flowchart LR
 
 Mermaid is large, so it isn't in `slate.js`. The first diagram in a page loads `mermaid/mermaid.js` (an ES module) from the folder `slate.js` was loaded from, and that loads only the chunks its diagram types need (a flowchart is about 2.3 MB, read once). Pass `diagramsUrl` with the full URL of `mermaid.js` if it lives elsewhere. Until it loads, or if it can't, the block shows its source. A diagram with a mistake shows Mermaid's message above its source.
 
-In Edit a diagram is a block like a table: clicking it, or its ✎ button, shows the source with the diagram drawn underneath as you type. Diagrams follow the host's theme (`data-theme` on the host: light, dark or paper). Mermaid runs with `securityLevel: 'strict'`, so diagram text can't run script or load anything.
+In Edit a diagram is a block like a table: clicking it, or its ✎ button, shows the source with the diagram drawn underneath as you type. A dense diagram can be zoomed where it is: Ctrl+wheel (⌘ on a Mac) zooms where the pointer is and Ctrl+drag moves it, while the plain wheel keeps scrolling the page; ⟲ shows the whole diagram again. The expand button at its top right opens it over the whole window, where the plain wheel and drag zoom and move it and Esc closes it. Diagrams follow the host's theme (`data-theme` on the host: light, dark or paper). Mermaid runs with `securityLevel: 'strict'`, so diagram text can't run script or load anything.
+
+### Code colouring (0.26.0)
+
+Code is coloured with [CodeMirror's language packs](https://github.com/codemirror/language-data), about 140 languages:
+
+- **Code files.** A host calls `setPlainText(true, { fileName })` for a file that isn't Markdown. The language comes from the file name's extension (or a whole name such as `Dockerfile`), so nobody names it; a name CodeMirror doesn't know (`.txt`, `.log`) stays plain. Edit and Source edit the file with colours and the language's indenting; Preview shows the same editor, read only, so a long file stays quick and keeps its colours. Printing prints the whole file, coloured.
+- **Fenced code blocks** in Preview (and cards, Show Changes and fill mode) are coloured by the fence's language: a name or alias (```` ```python ````, ```` ```js ````, ```` ```C++ ````) or an extension (```` ```py ````, ```` ```ts ````). No editor is made: the block is parsed by the language's parser and its text wrapped in spans. Unknown names and blocks over 200,000 characters stay plain.
+
+Both use one set of colours, classes `tok-keyword`, `tok-string`, `tok-comment` and so on, coloured in `slate.css` per theme through `--code-keyword`, `--code-string`, `--code-comment` and the like, which a host's stylesheet can override. The packs live in `languages/` (`languages/languages.js`, the list, and a chunk per language in `languages/chunks/`), built by `npm run build:languages` from `src/languages-entry.js`. `slate.js` loads the list the first time a code file or a fenced block with a language shows, then only the languages used, from next to `slate.js` or from `languagesUrl`. The chunks use the CodeMirror inside `slate.js` (`src/code-languages.js` leaves it on `globalThis[Symbol.for('slate.codemirror')]`), so serve `languages/` from the same Slate build. `test/code-colour-check.mjs` checks it in a browser.
 
 ### Named embeds (`embed`)
 
@@ -209,7 +219,7 @@ Controls Slate UI settings such as mode and outline state. It defaults to the va
 ### `workspaceMode`
 
 - `edit` — Obsidian-style Live Preview: the Markdown drawn in place (headings, emphasis, links, lists, task checkboxes, quotes, code, tables, images and videos), with the syntax shown only where the cursor is. Tables, images and videos open as source when the cursor reaches them (or by clicking a table cell or a media block's ✎ button). Enter continues lists, tasks and quotes.
-- `preview` — rendered document.
+- `preview` — rendered document. There is no Preview button (0.26.0): a host's read-only switch shows it (`readOnly`, `setReadOnly(true)`), as does Ctrl+E or `setWorkspaceMode('preview')`.
 - `source` — the complete Markdown in a CodeMirror editor (syntax colouring, undo/redo with Ctrl+Z / Ctrl+Y, Tab indents).
 
 ### `readOnly`
@@ -242,8 +252,9 @@ getWorkspaceMode()
 setWorkspaceMode('edit' | 'preview' | 'source')
 setReadOnly(boolean)
 setInteractiveTasks(boolean)
-setPlainText(boolean)   // a file that is not Markdown: shown and edited as plain text (0.24.1)
+setPlainText(boolean, { fileName })   // a file that is not Markdown (0.24.1); fileName colours it (0.26.0)
 isPlainText()
+getCodeLanguage()       // the language colouring a code file, such as "Python", or null (0.26.0)
 setAttachmentHandler(handler | null)
 isOutlineOpen()
 setOutlineOpen(boolean)
@@ -319,7 +330,7 @@ host.addEventListener('slate:form-submit', async e => {   // Send passed Slate's
 
 Fill mode draws the form as Preview does, in place of the document, with a real input for each field (radio buttons or check boxes under a choice, a drop-down for select, a box to tick for a signature) and the template's `<!-- comments -->` shown as hints: they are notes for the person filling it in, hidden everywhere else in Preview. Tokens in code stay text. **Send** checks every answer (required, lengths, patterns, number and date ranges, options) and shows each problem under its field; when they pass it fires `slate:form-submit`, and the host sends the answers. The document itself is never changed. `getForm()` returns the template's fields (or its first mistake), `getFormAnswers()` / `setFormAnswers()` read and set answers, `checkForm()` runs the checks, and **Stop Filling In** or `endFill()` go back to the document, firing `slate:fill-end` with the answers.
 
-To make the form the document's Preview, as Slate Viewer does, pass `inPreview: true`: Slate switches to Preview, keeps the Edit / Preview / Source switch and has no Stop Filling In. Leaving Preview ends fill mode (reason `'mode'`); start it again when `slate:mode-change` reports Preview. `readOnly: true` shows the fields greyed out with no Send, for a page that can't send the form, such as metatrash.com.
+To make the form the document's Preview, as Slate Viewer does, pass `inPreview: true`: Slate switches to Preview, keeps the Edit / Source switch and has no Stop Filling In. Leaving Preview ends fill mode (reason `'mode'`); start it again when `slate:mode-change` reports Preview. `readOnly: true` shows the fields greyed out with no Send, for a page that can't send the form, such as metatrash.com.
 
 Preview hides a document's front matter (the `---` block at the top), as it hides comments; Edit and Source show it.
 
@@ -482,7 +493,7 @@ See `docs/attachment-api.md` for the complete callback contract.
 The UI is not duplicated in host HTML. `slate.js` contains the complete component template, including:
 
 - formatting toolbar
-- Edit / Preview / Source controls
+- Edit / Source controls; Preview comes with read only, Ctrl+E or the API (0.26.0)
 - outline/navigation gutter and nested heading tree
 - heading completion indicators
 - attachment picker

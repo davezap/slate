@@ -7,3 +7,5 @@
 .editorconfig text eol=lf
 .gitattributes text eol=lf
 *.bat text eol=crlf
+# Generated, minified language packs (0.26.0): third-party code, not checked for whitespace.
+languages/** -whitespace

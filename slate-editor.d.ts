@@ -51,6 +51,11 @@ export interface SlateMountOptions {
   diagramsUrl?: string;
   /** Full URL of charts/charts.js, loaded for pie, bar and line cards. Default: next to slate.js. */
   chartsUrl?: string;
+  /**
+   * Full URL of languages/languages.js (0.26.0), loaded to colour code files and fenced code
+   * blocks. Default: next to slate.js. It must be served with its chunks/ beside it.
+   */
+  languagesUrl?: string;
   /** Answers ```card blocks (0.24.0). */
   cardHost?: SlateCardHost | null;
 }
@@ -256,12 +261,16 @@ export interface SlateEditorApi {
   setWorkspaceMode(mode: SlateWorkspaceMode): Promise<SlateWorkspaceMode | void>;
   setReadOnly(readOnly: boolean): Promise<SlateWorkspaceMode>;
   /**
-   * Plain text (Slate 0.24.1): Preview shows the document's text as it is, in the editor's font,
-   * and Edit and Source edit it without Markdown highlighting or live preview. For files that
-   * aren't Markdown (.txt, .csv, source code). Resolves to the new setting.
+   * Plain text (Slate 0.24.1): for files that aren't Markdown (.txt, .csv, source code). Edit and
+   * Source edit it without Markdown highlighting or live preview, and Preview shows it in the
+   * same editor, read only (0.26.0). With `fileName` (0.26.0) the text is coloured and indented
+   * by the language its extension (or whole name, such as Dockerfile) names, when CodeMirror
+   * knows it; otherwise it stays plain. Resolves to the new setting.
    */
-  setPlainText(on: boolean): Promise<boolean>;
+  setPlainText(on: boolean, options?: { fileName?: string }): Promise<boolean>;
   isPlainText(): boolean;
+  /** The language colouring the code file, such as "Python", or null (0.26.0). */
+  getCodeLanguage(): string | null;
   setInteractiveTasks(enabled: boolean): boolean;
   setAttachmentHandler(handler: SlateAttachmentHandler | null): void;
   isOutlineOpen(): boolean;
