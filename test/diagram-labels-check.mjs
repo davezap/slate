@@ -4,7 +4,9 @@
 // Mermaid flowchart with subgraph titles and multi-line labels in Preview, and checks that no
 // label's text is wider or taller than the box Mermaid drew for it, in the page and in the
 // full-size copy. Before 0.26.1 the policy dropped Mermaid's style="" on labels, so they took
-// Preview's line-height and word breaking and were cut off.
+// Preview's line-height and word breaking and were cut off. Then zooms the page with CSS zoom (as
+// Slate Viewer's Ctrl+wheel does on the website) and checks the diagram is drawn again and still
+// fits (0.26.2: Mermaid measured at the zoomed size, so at 90% every box was 10% too small).
 // Run: npm run build, then node test/diagram-labels-check.mjs.
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
@@ -94,6 +96,15 @@ try {
   await page.waitForSelector('.slate-diagram-overlay .slate-diagram-stage > svg');
   assert.deepEqual(await page.evaluate(overflowing, '.slate-diagram-overlay .slate-diagram-stage'), [], 'labels fit their boxes full size');
   await page.keyboard.press('Escape');
+
+  for (const zoom of ['0.9', '1.3']) {
+    const before = await page.evaluate(() => document.querySelector('#previewPane .slate-diagram-canvas > svg').id);
+    await page.evaluate(zoom => { document.documentElement.style.zoom = zoom; }, zoom);
+    await page.waitForFunction(before => document.querySelector('#previewPane .slate-diagram.is-drawn .slate-diagram-canvas > svg')?.id !== before, before, { timeout: 20000 });
+    await page.waitForTimeout(300);
+    assert.deepEqual(await page.evaluate(overflowing, '#previewPane .slate-diagram-canvas'), [], `labels fit their boxes at zoom ${zoom}`);
+  }
+  await page.evaluate(() => { document.documentElement.style.zoom = ''; });
 
   assert.deepEqual(errors, []);
   console.log(`diagram labels: ok${fontFile ? '' : ' (no font file found: the late web font was not tested)'}`);

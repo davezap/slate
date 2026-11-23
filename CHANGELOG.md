@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.26.2 — 2026-11-23
+
+- **Diagrams fit at any page zoom**: a host that zooms the page with CSS `zoom` (Slate Viewer's Ctrl+wheel, Ctrl+= and Ctrl+− on the website set it on `<html>`) made Mermaid measure labels at the zoomed size, so at 90% every box was 10% too small and text was cut off, while the same page at 100% was fine. Mermaid's scratch element is now zoomed back to 1 while it measures (an adopted stylesheet, allowed under a strict CSP: `measureUnzoomed`), and diagrams are drawn again when the zoom on `<html>` or `<body>` changes (`watchPageZoom`; the cache is per theme and zoom). `src/slate.js`.
+- `test/diagram-labels-check.mjs` also zooms the page to 90% and 130% and checks the diagram is drawn again and fits; 0.26.1 fails it. Claude ran it, `reveal-hold-check` and `diagram-zoom-check`, which passed. See docs/release-0.26.2.md.
+
 ## 0.26.1 — 2026-11-23
 
 - **Diagram labels no longer get cut off** on pages with a strict Content-Security-Policy (Metatrash and Collumii pages, Slate Viewer): Mermaid sizes each label with a `style=""` attribute (width, line-height, wrapping) and measures it that way, but the policy dropped those attributes when the drawing went into the page, so labels took Preview's line-height 1.7 and `overflow-wrap: anywhere`, grew taller and wrapped differently, and their last line or end was clipped. The attributes are now applied through the CSSOM, which the policy allows (`applyDiagramStyles` in `src/slate.js`, in the page and the full-size copy), and the diagram box resets Preview's text settings (`slate.css`).

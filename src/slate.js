@@ -12,7 +12,7 @@ import { askedFields, checkAnswers, defaultAnswer, flowHidden, hiddenLines, isFo
   // Where slate.js was loaded from, to find mermaid/ next to it.
   const SCRIPT_URL = document.currentScript?.src || '';
 
-  const APP_VERSION = '0.26.1';
+  const APP_VERSION = '0.26.2';
   /** The Copy button on code blocks (0.25.0, see copyCodeBlock). */
   const COPY_BUTTON = '<button type="button" class="slate-code-copy" title="Copy" aria-label="Copy to the clipboard" contenteditable="false">'
     + '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15V5a2 2 0 0 1 2-2h8"></path></svg>'
@@ -2483,6 +2483,51 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     }
   }
 
+  // A host may zoom the whole page with CSS `zoom` (Slate Viewer's Ctrl+wheel on the website sets it
+  // on <html>). Mermaid measures labels with getBoundingClientRect, which counts that zoom, so at
+  // 90% every box came out 10% too small for its text (0.26.2). Its scratch element (a
+  // <div id="d…"> at the end of <body>) is zoomed back to 1 while it measures, by an adopted
+  // stylesheet (allowed under a strict CSP), and diagrams are drawn again when the zoom changes.
+
+  /** The page's CSS zoom (on <html> and <body>), 1 when there is none. */
+  function pageZoom() {
+    let zoom = 1;
+    for (const element of [document.documentElement, document.body]) {
+      const value = element ? Number.parseFloat(getComputedStyle(element).zoom) : 1;
+      if (Number.isFinite(value) && value > 0) zoom *= value;
+    }
+    return Math.round(zoom * 1000) / 1000;
+  }
+
+  let diagramZoomSheet = null;
+
+  function measureUnzoomed(zoom) {
+    if (!diagramZoomSheet) {
+      if (typeof CSSStyleSheet !== 'function' || !('replaceSync' in CSSStyleSheet.prototype) || !Array.isArray(document.adoptedStyleSheets)) return;
+      diagramZoomSheet = new CSSStyleSheet();
+      document.adoptedStyleSheets = [...document.adoptedStyleSheets, diagramZoomSheet];
+    }
+    diagramZoomSheet.replaceSync(zoom === 1 ? '' : `body > [id^="dslate-mermaid-"]{ zoom: ${1 / zoom} !important; }`);
+  }
+
+  let watchedZoom = null;
+
+  /** Draws the diagrams again when the page's zoom changes. */
+  function watchPageZoom() {
+    if (watchedZoom !== null || typeof MutationObserver !== 'function') return;
+    watchedZoom = pageZoom();
+    const observer = new MutationObserver(() => {
+      const zoom = pageZoom();
+      if (zoom === watchedZoom) return;
+      watchedZoom = zoom;
+      closeDiagramOverlay();
+      if (mountHost) hydrateDiagrams(mountHost);
+    });
+    for (const element of [document.documentElement, document.body]) {
+      if (element) observer.observe(element, { attributes: true, attributeFilter: ['style', 'class'] });
+    }
+  }
+
   function diagramTheme() {
     const theme = mountHost?.dataset.theme;
     return theme === 'dark' || theme === 'paper' ? theme : 'light';
@@ -2491,8 +2536,11 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
   /** Draws the diagrams under `root` that aren't drawn yet (or were drawn for another theme). */
   async function hydrateDiagrams(root = el.previewPane) {
     const theme = diagramTheme();
-    const elements = [...(root?.querySelectorAll('.slate-diagram') ?? [])].filter(element => element.dataset.renderedTheme !== theme);
+    const zoom = pageZoom();
+    const drawnAs = `${theme} ${zoom}`;
+    const elements = [...(root?.querySelectorAll('.slate-diagram') ?? [])].filter(element => element.dataset.renderedTheme !== drawnAs);
     if (!elements.length) return;
+    watchPageZoom();
     let mermaid;
     try {
       [mermaid] = await Promise.all([loadMermaid(), diagramFontsReady()]);
@@ -2502,10 +2550,12 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     }
     for (const element of elements) {
       const source = element.dataset.diagramSource ?? '';
-      const key = `${theme}\n${source}`;
+      const key = `${drawnAs}\n${source}`;
       try {
         let drawn = diagramCache.get(key);
         if (!drawn) {
+          // Set before each draw: the zoom can change while earlier diagrams draw.
+          measureUnzoomed(zoom);
           drawn = await mermaid.render(source, theme);
           diagramCache.set(key, drawn);
           if (diagramCache.size > 60) diagramCache.delete(diagramCache.keys().next().value);
@@ -2519,7 +2569,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
         applyDiagramStyles(canvas);
         element.classList.remove('has-error');
         element.classList.add('is-drawn');
-        element.dataset.renderedTheme = theme;
+        element.dataset.renderedTheme = drawnAs;
       } catch (error) {
         showDiagramError(element, error?.message || String(error));
       }
@@ -2531,7 +2581,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     if (!canvas) return;
     element.classList.add('has-error');
     element.classList.remove('is-drawn', 'is-zoomed');
-    element.dataset.renderedTheme = diagramTheme();
+    element.dataset.renderedTheme = `${diagramTheme()} ${pageZoom()}`;
     const message = document.createElement('div');
     message.className = 'slate-diagram-error';
     message.textContent = String(text).split('\n').slice(0, 6).join('\n');
