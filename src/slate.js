@@ -12,7 +12,7 @@ import { askedFields, checkAnswers, defaultAnswer, flowHidden, hiddenLines, isFo
   // Where slate.js was loaded from, to find mermaid/ next to it.
   const SCRIPT_URL = document.currentScript?.src || '';
 
-  const APP_VERSION = '0.26.0';
+  const APP_VERSION = '0.26.1';
   /** The Copy button on code blocks (0.25.0, see copyCodeBlock). */
   const COPY_BUTTON = '<button type="button" class="slate-code-copy" title="Copy" aria-label="Copy to the clipboard" contenteditable="false">'
     + '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15V5a2 2 0 0 1 2-2h8"></path></svg>'
@@ -2453,6 +2453,36 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     return mermaidModule;
   }
 
+  // Mermaid measures each label as it draws, with the font in DIAGRAM_FONT (src/mermaid-entry.js).
+  // If that font is a web font still loading (the site's Inter), the labels are measured in the
+  // fallback font and the text overflows its box once the web font arrives (0.26.1).
+  const DIAGRAM_FONT = 'Inter, "Segoe UI", system-ui, sans-serif';
+  let diagramFontsWait = null;
+
+  /** Waits (at most 3 s) for the diagram font's regular and bold faces, if the page has them. */
+  function diagramFontsReady() {
+    if (!document.fonts?.load) return Promise.resolve();
+    diagramFontsWait ??= Promise.race([
+      Promise.all(['400', '700'].map(weight => document.fonts.load(`${weight} 16px ${DIAGRAM_FONT}`))).catch(() => {}),
+      new Promise(resolve => setTimeout(resolve, 3000)),
+    ]);
+    return diagramFontsWait;
+  }
+
+  /**
+   * Mermaid sizes its labels with style="" attributes (width, line-height, wrapping). A page whose
+   * Content-Security-Policy has no style-src 'unsafe-inline' (Metatrash's and Collumii's pages)
+   * drops those attributes when the SVG goes in as HTML, though Mermaid measured with them, so
+   * labels wrapped and grew taller than their boxes and were cut off. Setting them through the
+   * CSSOM is allowed, so they are copied across (0.26.1).
+   */
+  function applyDiagramStyles(root) {
+    for (const element of root?.querySelectorAll('[style]') ?? []) {
+      const style = element.getAttribute('style');
+      if (style && element.style.cssText !== style) element.style.cssText = style;
+    }
+  }
+
   function diagramTheme() {
     const theme = mountHost?.dataset.theme;
     return theme === 'dark' || theme === 'paper' ? theme : 'light';
@@ -2465,7 +2495,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     if (!elements.length) return;
     let mermaid;
     try {
-      mermaid = await loadMermaid();
+      [mermaid] = await Promise.all([loadMermaid(), diagramFontsReady()]);
     } catch (error) {
       elements.forEach(element => showDiagramError(element, error.message));
       return;
@@ -2486,6 +2516,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
         // diagram can show in Preview and Edit at once.
         diagramCopies += 1;
         canvas.innerHTML = drawn.svg.split(drawn.id).join(`${drawn.id}-${diagramCopies}`);
+        applyDiagramStyles(canvas);
         element.classList.remove('has-error');
         element.classList.add('is-drawn');
         element.dataset.renderedTheme = theme;
@@ -2703,6 +2734,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
       diagramCopies += 1;
       holder.innerHTML = svg.outerHTML.split(id).join(`${id.replace(/-\d+$/, '')}-${diagramCopies}`);
     }
+    applyDiagramStyles(holder);
     const copy = holder.firstElementChild;
     const base = diagramBaseView(svg);
     if (copy && base) copy.setAttribute('viewBox', `${base.x} ${base.y} ${base.width} ${base.height}`);
@@ -3609,6 +3641,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     const block = el.previewPane.querySelector(`:scope > .live-block[data-line-index="${lineIndex}"]`);
     if (!block) return;
     scrollPreviewElementIntoView(block, { behavior: 'smooth', block: 'start' });
+    holdPreviewLine(lineIndex);
     block.classList.remove('outline-target');
     requestAnimationFrame(() => {
       block.classList.add('outline-target');
@@ -3616,11 +3649,54 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
     });
   }
 
+  // ---- Keeping a revealed heading at the top (0.26.1) -------------------------------------------
+  // A heading picked in the outline (or named by a link's #anchor) is scrolled to where it is now,
+  // but diagrams, pictures and embeds above it can still be drawing and change height after that,
+  // which left the heading part way down the page or above it. Until the reader scrolls, clicks or
+  // types in the page (or 15 s pass), each change of size puts the heading back at the top.
+
+  let previewHold = null;
+
+  function releasePreviewHold() {
+    if (!previewHold) return;
+    previewHold.observer.disconnect();
+    clearTimeout(previewHold.timer);
+    for (const type of PREVIEW_HOLD_RELEASE) previewHold.pane.removeEventListener(type, releasePreviewHold, true);
+    previewHold = null;
+  }
+
+  const PREVIEW_HOLD_RELEASE = ['wheel', 'touchstart', 'pointerdown', 'keydown'];
+
+  function holdPreviewLine(lineIndex) {
+    releasePreviewHold();
+    const pane = el.previewPane;
+    if (!pane || typeof ResizeObserver !== 'function') return;
+    const align = () => {
+      const block = pane.querySelector(`:scope > .live-block[data-line-index="${lineIndex}"]`);
+      if (!block) return releasePreviewHold();
+      const offset = block.getBoundingClientRect().top - pane.getBoundingClientRect().top;
+      // An instant scroll also ends a smooth one still on its way to the old place.
+      if (Math.abs(offset) > 1) pane.scrollTo({ top: Math.max(0, pane.scrollTop + offset), behavior: 'auto' });
+    };
+    let frame = 0;
+    let primed = false;
+    const observer = new ResizeObserver(() => {
+      // The first call reports every block's present size: nothing has moved yet.
+      if (!primed) return void (primed = true);
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(align);
+    });
+    for (const child of pane.children) observer.observe(child);
+    previewHold = { pane, observer, timer: setTimeout(releasePreviewHold, 15000) };
+    for (const type of PREVIEW_HOLD_RELEASE) pane.addEventListener(type, releasePreviewHold, { capture: true, passive: true });
+  }
+
   /**
    * Puts a host's saved place back: the cursor or selection (offsets into the Markdown, kept in
    * every mode) without scrolling to it, then `topLine` at the top of the view, in any mode.
    */
   function restoreView({ selection, topLine, focus = false } = {}) {
+    releasePreviewHold();
     if (Array.isArray(selection) && selection.length) {
       const length = el.markdownEditor.value.length;
       const clampOffset = value => Math.max(0, Math.min(length, Math.floor(Number(value)) || 0));
@@ -5117,6 +5193,7 @@ Use \`- [>] !video[Required training](url)\` for a locked watch-completion task.
         return selectedNote()?.content || '';
       },
       async setMarkdown(markdown) {
+        releasePreviewHold();
         const note = selectedNote();
         if (!note) return;
         if (state.compare) finishCompare('replaced');

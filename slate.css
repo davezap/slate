@@ -1309,6 +1309,12 @@
   border: 1px solid var(--border); border-radius: 8px; background: var(--panel);
 }
 .slate-editor-host .slate-diagram-canvas{ display: flex; justify-content: center; }
+/* Mermaid measures labels in a scratch element at the end of <body>, so the page's own text
+   settings (Preview's line-height 1.7, overflow-wrap: anywhere) must not reach the drawing (0.26.1). */
+.slate-editor-host :is(.slate-diagram-canvas, .slate-diagram-stage){
+  line-height: normal; overflow-wrap: normal; word-break: normal; letter-spacing: normal;
+  word-spacing: normal; text-indent: 0; text-transform: none; white-space: normal;
+}
 .slate-editor-host .slate-diagram-canvas > svg{ max-width: 100%; height: auto; }
 .slate-editor-host .slate-diagram-pending{
   margin: 0; width: 100%; white-space: pre-wrap; color: var(--text-muted);
